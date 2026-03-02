@@ -72,6 +72,10 @@
           {
             "group": "User Data",
             "pages": ["api/user/profile", "api/user/activities"]
+          },
+          {
+            "group": "Calendar",
+            "pages": ["api/calendar/events"]
           }
         ]
       }

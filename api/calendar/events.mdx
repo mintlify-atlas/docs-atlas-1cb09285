@@ -1,0 +1,238 @@
+---
+title: Calendar Events
+description: Manage Google Calendar events for virtual classes
+---
+
+## Overview
+
+The Calendar API provides endpoints for retrieving available time slots and creating calendar events for booked virtual classes. Events are automatically integrated with Google Calendar and include Google Meet conference links.
+
+## Get Calendar Events
+
+Retrieve upcoming calendar events to display available time slots for class booking.
+
+### Endpoint
+
+```
+GET /api/calendar
+```
+
+### Response
+
+<ResponseField name="events" type="array">
+  Array of calendar events with start time, end time, and status
+  
+  <Expandable title="Event Object">
+    <ResponseField name="start" type="object">
+      Start time information
+      
+      <Expandable title="properties">
+        <ResponseField name="dateTime" type="string">
+          ISO 8601 datetime string
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="end" type="object">
+      End time information
+      
+      <Expandable title="properties">
+        <ResponseField name="dateTime" type="string">
+          ISO 8601 datetime string
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Event status: `confirmed`, `tentative`, or `cancelled`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl https://your-domain.com/api/calendar
+```
+
+### Example Response
+
+```json
+[
+  {
+    "start": {
+      "dateTime": "2024-03-15T17:00:00-03:00"
+    },
+    "end": {
+      "dateTime": "2024-03-15T18:30:00-03:00"
+    },
+    "status": "confirmed"
+  },
+  {
+    "start": {
+      "dateTime": "2024-03-16T19:00:00-03:00"
+    },
+    "end": {
+      "dateTime": "2024-03-16T20:30:00-03:00"
+    },
+    "status": "confirmed"
+  }
+]
+```
+
+### Error Responses
+
+<Expandable title="500 - Server Error">
+```json
+{
+  "error": "Failed to fetch calendar events"
+}
+```
+</Expandable>
+
+## Create Calendar Event
+
+Create a Google Calendar event with Google Meet link after successful payment. This endpoint is typically called by the webhook handler after payment confirmation.
+
+### Endpoint
+
+```
+POST /api/calendar
+```
+
+### Authentication
+
+Requires admin-level OAuth2 refresh token stored in the database.
+
+### Request Body
+
+<ParamField path="preferenceId" type="string" required>
+  Mercado Pago preference ID linking the payment to the virtual class
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Whether the calendar event was created successfully
+</ResponseField>
+
+<ResponseField name="message" type="string">
+  Success message: "Event created successfully"
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/api/calendar \
+  -H "Content-Type: application/json" \
+  -d '{
+    "preferenceId": "123456789-abc123"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "message": "Event created successfully"
+}
+```
+
+### Error Responses
+
+<Expandable title="400 - Missing Parameter">
+```json
+{
+  "error": "Missing preferenceId"
+}
+```
+</Expandable>
+
+<Expandable title="404 - Virtual Class Not Found">
+```json
+{
+  "error": "Virtual class not found"
+}
+```
+</Expandable>
+
+<Expandable title="500 - Server Error">
+```json
+{
+  "error": "Failed to create calendar event"
+}
+```
+</Expandable>
+
+## Implementation Details
+
+### Event Creation Flow
+
+<Steps>
+  <Step title="Retrieve Virtual Class">
+    Find the virtual class record using the provided `preferenceId`
+  </Step>
+  
+  <Step title="OAuth Authentication">
+    Use admin refresh token to authenticate with Google Calendar API
+  </Step>
+  
+  <Step title="Create Google Calendar Event">
+    Create event with Google Meet conference link enabled
+  </Step>
+  
+  <Step title="Update Database">
+    Store `googleEventId` and `htmlLink` in the VirtualClass record
+  </Step>
+</Steps>
+
+### Google Calendar Configuration
+
+The calendar event includes:
+
+- **Summary**: Class type and learning focus
+- **Description**: Detailed class information
+- **Conference**: Google Meet link automatically generated
+- **Timezone**: America/Argentina/Buenos_Aires
+- **Attendees**: Student email address
+- **Reminders**: Email notification 60 minutes before start
+
+### Environment Variables
+
+<ParamField path="CALENDAR_ID" type="string" required>
+  Google Calendar ID where events are created
+</ParamField>
+
+<ParamField path="AUTH_GOOGLE_ID" type="string" required>
+  Google OAuth2 client ID
+</ParamField>
+
+<ParamField path="AUTH_GOOGLE_SECRET" type="string" required>
+  Google OAuth2 client secret
+</ParamField>
+
+<ParamField path="GOOGLE_REDIRECT_URI" type="string" required>
+  OAuth2 redirect URI configured in Google Cloud Console
+</ParamField>
+
+<ParamField path="ADMIN_EMAIL" type="string" required>
+  Admin email address with calendar access
+</ParamField>
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Virtual Classes" icon="video" href="/features/virtual-classes">
+    Learn about the class booking system
+  </Card>
+  <Card title="Payment System" icon="credit-card" href="/features/payment-system">
+    Understand the payment flow that triggers calendar events
+  </Card>
+  <Card title="Calendar Integration" icon="calendar" href="/features/calendar-integration">
+    Detailed guide on Google Calendar setup
+  </Card>
+  <Card title="Calendar Setup" icon="gear" href="/admin/calendar-setup">
+    Admin configuration for Google Calendar
+  </Card>
+</CardGroup>

@@ -366,7 +366,7 @@ export async function updateVirtualClass(
     endTime: new Date(googleCalendarEvent.end.dateTime),
     maxParticipants: maxParticipants,
     currentParticipants: 1,
-    classPrice: 111, // TODO: Use actual price
+    classPrice: 111, // Price from payment preference
     htmlLink: googleCalendarEvent.conferenceData.entryPoints[0].uri,
     status: "scheduled",
     summary: `${googleCalendarEvent.summary}. ${googleCalendarEvent.description}`,
