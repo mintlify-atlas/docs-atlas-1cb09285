@@ -1,0 +1,86 @@
+{
+  "projectType": "saas",
+  "projectName": "Speak English Now",
+  "projectDescription": "An online platform for teaching private and group English lessons with AI-powered learning activities and virtual class management.",
+  "theme": "almond",
+  "primaryColor": "#4F46E5",
+  "lightColor": "#818CF8",
+  "darkColor": "#3730A3",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Platform",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": ["introduction", "quickstart"]
+          },
+          {
+            "group": "Core Features",
+            "pages": ["features/virtual-classes", "features/learning-activities", "features/payment-system", "features/calendar-integration"]
+          },
+          {
+            "group": "User Guide",
+            "pages": ["guide/registration", "guide/booking-classes", "guide/taking-classes", "guide/activities-exams", "guide/billing"]
+          },
+          {
+            "group": "Learning Levels",
+            "pages": ["levels/overview", "levels/grammar-beginner", "levels/listening-intermediate", "levels/conversational-advanced"]
+          }
+        ]
+      },
+      {
+        "tab": "Administration",
+        "groups": [
+          {
+            "group": "Admin Features",
+            "pages": ["admin/overview", "admin/class-management", "admin/user-management", "admin/support-tickets"]
+          },
+          {
+            "group": "Configuration",
+            "pages": ["admin/setup", "admin/payment-integration", "admin/calendar-setup"]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Authentication",
+            "pages": ["api/auth/overview", "api/auth/google-oauth", "api/auth/sessions"]
+          },
+          {
+            "group": "Classes",
+            "pages": ["api/classes/booking", "api/classes/upcoming", "api/classes/access-code"]
+          },
+          {
+            "group": "Payments",
+            "pages": ["api/payments/mercado-pago", "api/payments/webhooks"]
+          },
+          {
+            "group": "User Data",
+            "pages": ["api/user/profile", "api/user/activities"]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Virtual class booking with Google Calendar integration",
+    "AI-powered learning activities and exams",
+    "Multi-level English courses (beginner to advanced)",
+    "Integrated payment processing with Mercado Pago",
+    "Support ticket system for student assistance",
+    "Progress tracking and user analytics"
+  ],
+  "publicApiSurface": [
+    "POST /api/booking - Book a virtual class",
+    "GET /api/upcoming-classes - Fetch upcoming classes",
+    "POST /api/mercado-pago/create-preference - Create payment preference",
+    "GET /api/calendar - Get calendar events",
+    "POST /api/access-code - Validate class access code",
+    "GET /api/user-data - Get user profile data",
+    "POST /api/auth/signin - Authenticate user",
+    "POST /api/auth/signout - Sign out user"
+  ]
+}
