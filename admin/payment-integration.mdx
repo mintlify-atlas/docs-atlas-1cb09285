@@ -1,0 +1,498 @@
+---
+title: Mercado Pago Payment Integration
+description: Configure and manage Mercado Pago payment processing for virtual class bookings
+---
+
+The Speak English Now platform uses Mercado Pago as the payment processor for class bookings. This guide covers setup, webhook configuration, and payment flow.
+
+## Overview
+
+Mercado Pago integration handles:
+
+- Payment preference creation
+- Checkout redirect flow
+- Webhook notifications for payment status
+- Automatic class creation upon payment approval
+- Payment record management in database
+
+## Environment Configuration
+
+### Required Environment Variables
+
+<ParamField path="MERCADO_PAGO_ACCESS_TOKEN" type="string" required>
+  Your Mercado Pago private access token. Obtain from:
+  1. Log into [Mercado Pago Developer Dashboard](https://www.mercadopago.com/developers)
+  2. Navigate to "Your integrations" > "Credentials"
+  3. Copy the "Access Token" (Production or Test mode)
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY" type="string" required>
+  Your Mercado Pago public key for client-side SDK initialization.
+  Found in the same credentials section as the access token.
+</ParamField>
+
+<ParamField path="BASE_URL" type="string" required>
+  Your application's base URL including protocol and trailing slash:
+  - Development: `http://localhost:3000/`
+  - Production: `https://yourdomain.com/`
+  
+  Used for constructing webhook and callback URLs.
+</ParamField>
+
+**Implementation:** `src/app/api/mercado-pago/create-preference/route.ts:24`
+
+### Test vs Production Credentials
+
+Mercado Pago provides separate credentials for testing:
+
+- **Test Mode:** Use test credentials for development
+- **Production Mode:** Use production credentials for live payments
+
+<Warning>
+  Never use production credentials in development environments. Always use test mode credentials during development.
+</Warning>
+
+## Payment Data Model
+
+Payments are tracked using the `PaymentMercadoPago` schema:
+
+### PaymentMercadoPago Schema
+
+<ParamField path="id" type="string">
+  MongoDB ObjectId - unique payment record identifier
+</ParamField>
+
+<ParamField path="userId" type="string" required>
+  Reference to the user making the payment
+</ParamField>
+
+<ParamField path="preferenceId" type="string" required>
+  Mercado Pago preference ID (unique)
+</ParamField>
+
+<ParamField path="price" type="number" required>
+  Payment amount in local currency (ARS)
+</ParamField>
+
+<ParamField path="type" type="enum" required>
+  Class type: `individual` or `grupal`
+</ParamField>
+
+<ParamField path="maxParticipants" type="number" required>
+  Number of students for the class
+</ParamField>
+
+<ParamField path="status" type="enum" default="pending">
+  Payment status: `approved`, `pending`, or `rejected`
+</ParamField>
+
+**Schema Reference:** `prisma/schema.prisma:182-193`
+
+### Payment Status Types
+
+<ParamField path="approved" type="status">
+  Payment successfully processed
+</ParamField>
+
+<ParamField path="pending" type="status">
+  Payment initiated but not yet confirmed
+</ParamField>
+
+<ParamField path="rejected" type="status">
+  Payment failed or was declined
+</ParamField>
+
+**Enum Definition:** `prisma/schema.prisma:22-26`
+
+## Payment Flow
+
+The complete payment flow follows these steps:
+
+### Step 1: User Initiates Booking
+
+User selects class type, date, and time on the booking page.
+
+### Step 2: Create Payment Preference
+
+**API Route:** `src/app/api/mercado-pago/create-preference/route.ts`
+
+```typescript
+export async function POST(request: NextRequest) {
+  const body = await request.json();
+  const session = await auth()
+  
+  const { type, studentsCount, price } = body
+  
+  if (!session?.user) {
+    throw new Error('User not authenticated');
+  }
+  
+  const client = new MercadoPagoConfig({ 
+    accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN! 
+  });
+  
+  const preference = new Preference(client);
+  
+  const mpBody = {
+    items: [
+      {
+        id: `${session.user.id}-${Date.now()}`,
+        title: `HablaInglesYa - Clase virtual para ${studentsCount} persona(s)`,
+        quantity: 1,
+        unit_price: price,
+        currency_id: "ARS",
+      }
+    ],
+    notification_url: `${process.env.BASE_URL}api/mercado-pago/webhook`,
+    back_urls: {
+      success: `${process.env.BASE_URL}/checkout/callback/success`,
+      failure: `${process.env.BASE_URL}/checkout/callback/failure`,
+      pending: `${process.env.BASE_URL}/checkout/callback/pending`,
+    },
+    auto_return: "approved",
+  }
+  
+  const result = await preference.create({ body: mpBody });
+  
+  // Save payment record
+  const data: PaymentMP = {
+    userId: session.user.id,
+    preferenceId: result.id,
+    amount: Number(price),
+    type: type,
+    maxParticipants: Number(studentsCount),
+    status: 'pending',
+  }
+  
+  await createPayment(data);
+  
+  return NextResponse.json({ 
+    preferenceId: result.id, 
+    initPoint: result.init_point 
+  })
+}
+```
+
+### Step 3: Redirect to Mercado Pago Checkout
+
+User is redirected to `result.init_point` where they complete payment.
+
+### Step 4: Payment Processing
+
+Mercado Pago processes the payment and sends webhook notifications.
+
+### Step 5: Webhook Handling
+
+Webhook receives payment confirmation and creates the virtual class.
+
+## Webhook Configuration
+
+### Webhook URL Setup
+
+1. **Configure in Mercado Pago Dashboard:**
+   - Go to "Your integrations" > "Webhooks"
+   - Add webhook URL: `https://yourdomain.com/api/mercado-pago/webhook`
+   - Select events: "Payments" and "Merchant Orders"
+
+2. **Webhook Events:**
+   - `payment` - Individual payment notifications (logged but ignored)
+   - `merchant_order` - Order completion (triggers class creation)
+
+### Webhook Implementation
+
+**API Route:** `src/app/api/mercado-pago/webhook/route.ts`
+
+```typescript
+export async function POST(req: Request) {
+  const raw = await req.text();
+  let body: any = {};
+  
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    console.log("⚠ No se pudo parsear JSON. Continuamos...");
+  }
+  
+  const topic = body?.topic
+  const resource = body?.resource
+  
+  if (topic === "payment") {
+    console.log("📬 Webhook 'payment' recibido. Ignorando (normal).");
+    return Response.json({ ok: true });
+  }
+  
+  if (topic === "merchant_order") {
+    if (!resource) {
+      console.log("⚠ Webhook sin resource URL");
+      return Response.json({ ok: true });
+    }
+    
+    // Fetch merchant order details
+    const orderRes = await fetch(resource, {
+      headers: {
+        Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`,
+      },
+    });
+    
+    const order = await orderRes.json();
+    const payment = order.payments?.[0];
+    
+    if (!payment) {
+      console.log("⚠ La orden no tiene pagos aún");
+      return Response.json({ ok: true });
+    }
+    
+    if (payment.status === "approved") {
+      console.log("✔ Pago aprobado, guardar en base de datos");
+      const preferenceId = order.preference_id;
+      
+      // Update payment status
+      await updatePayment(preferenceId)
+      
+      // Create Google Calendar event and virtual class
+      const url = normalizeUrl(process.env.BASE_URL!, API_ROUTES.CALENDAR);
+      await KY(Method.POST, url, {
+        json: { preferenceId }
+      });
+    }
+    
+    return Response.json({ ok: true, status: 200 });
+  }
+  
+  console.log("⚠ Webhook desconocido, ignorando");
+  return Response.json({ ok: true });
+}
+```
+
+<Note>
+  Mercado Pago sends webhook notifications multiple times. Your endpoint must be idempotent to handle duplicate requests safely.
+</Note>
+
+### Webhook Security
+
+Unlike Stripe, Mercado Pago doesn't sign webhook bodies. Security measures:
+
+1. **Verify Resource URL:** Always fetch order details from Mercado Pago's API
+2. **Use HTTPS:** Ensure webhook URL uses SSL
+3. **Validate Data:** Check payment status from official API response
+4. **Idempotency:** Handle duplicate webhook calls gracefully
+
+## Creating Virtual Class After Payment
+
+When payment is approved, the system:
+
+### 1. Update Payment Record
+
+**Function:** `src/services/functions/index.ts:384-398`
+
+```typescript
+export async function updatePayment(preferenceId: string) {
+  try {
+    const response = await db.paymentMercadoPago.update({
+      where: { preferenceId },
+      data: { status: 'approved' }
+    })
+    return { response, success: true };
+  } catch (error) {
+    console.error("Error updating payment:", error);
+  }
+}
+```
+
+### 2. Find Virtual Class Record
+
+The class was pre-created during booking with `status: 'pending'`:
+
+**Function:** `src/services/functions/index.ts:401-419`
+
+```typescript
+export async function findVirtualClass(preferenceId: string) {
+  try {
+    const response = await db.virtualClass.findFirst({
+      where: { preferenceId },
+      select: {
+        startTime: true,
+        endTime: true,
+        classType: true,
+        maxParticipants: true,
+        preferenceId: true,
+      }
+    });
+    return { response, success: true };
+  } catch (error) {
+    console.error("Error finding virtual class:", error);
+  }
+}
+```
+
+### 3. Create Google Calendar Event
+
+See [Calendar Setup](/admin/calendar-setup) for details on this step.
+
+### 4. Update Virtual Class
+
+Final update includes Google Meet link and access code:
+
+**Function:** `src/services/functions/index.ts:185-246`
+
+Updates:
+- `status` → `"scheduled"`
+- `googleEventId` → Calendar event ID
+- `htmlLink` → Google Meet link
+- `accessCode` → Random 8-character code
+- `summary` → Class description
+
+## Payment Configuration Options
+
+### Payment Methods
+
+Configure accepted payment methods:
+
+```typescript
+payment_methods: {
+  excluded_payment_types: [], // Exclude types (e.g., ['ticket', 'atm'])
+  excluded_payment_methods: [], // Exclude specific methods
+  installments: 12, // Maximum installments allowed
+}
+```
+
+**Current Configuration:** `src/app/api/mercado-pago/create-preference/route.ts:39-43`
+
+### Callback URLs
+
+Users are redirected after payment:
+
+<ParamField path="success" type="url">
+  Redirect URL for successful payments:
+  `${BASE_URL}/checkout/callback/success`
+</ParamField>
+
+<ParamField path="failure" type="url">
+  Redirect URL for failed payments:
+  `${BASE_URL}/checkout/callback/failure`
+</ParamField>
+
+<ParamField path="pending" type="url">
+  Redirect URL for pending payments:
+  `${BASE_URL}/checkout/callback/pending`
+</ParamField>
+
+### Auto Return
+
+```typescript
+auto_return: "approved"
+```
+
+Automatically redirects user to success URL when payment is approved.
+
+## Client-Side Integration
+
+The checkout is initiated client-side using Mercado Pago SDK:
+
+**Implementation:** `src/services/api/clients.ts`
+
+```typescript
+initMercadoPago(process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY!);
+
+const mp = new window.MercadoPago(
+  process.env.NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY!, 
+  { locale: "es-AR" }
+);
+```
+
+## Testing Payments
+
+### Test Cards
+
+Mercado Pago provides test cards for different scenarios:
+
+**Approved Payment:**
+- Card: `5031 7557 3453 0604`
+- Expiry: Any future date
+- CVV: Any 3 digits
+- Name: Any name
+
+**Rejected Payment:**
+- Card: `5031 4332 1540 6351`
+
+**Pending Payment:**
+- Card: `5031 4332 1540 6351`
+
+See [Mercado Pago Testing Documentation](https://www.mercadopago.com/developers/en/docs/checkout-api/integration-test/test-cards)
+
+### Webhook Testing
+
+For local development, use a tunnel service to expose your webhook:
+
+1. **Using ngrok:**
+   ```bash
+   ngrok http 3000
+   ```
+
+2. **Using srv.us:**
+   ```bash
+   srv http 3000
+   ```
+
+3. **Update webhook URL in Mercado Pago:**
+   ```
+   https://your-tunnel-url.ngrok.io/api/mercado-pago/webhook
+   ```
+
+<Warning>
+  Remember to update webhook URL back to production URL before deploying.
+</Warning>
+
+## Troubleshooting
+
+### Common Issues
+
+**"Webhook not receiving notifications"**
+- Verify `BASE_URL` ends with `/`
+- Check webhook URL in Mercado Pago dashboard
+- Ensure webhook endpoint is publicly accessible
+- Check firewall/security group settings
+
+**"Payment approved but class not created"**
+- Check webhook logs for errors
+- Verify `preferenceId` matches between payment and class records
+- Check Google Calendar API is working
+- Verify admin refresh token is stored
+
+**"Invalid access token"**
+- Verify `MERCADO_PAGO_ACCESS_TOKEN` is correct
+- Check you're using the right mode (test/production)
+- Token may have been regenerated in dashboard
+
+**"Preference creation fails"**
+- Verify all required fields in request body
+- Check currency_id is supported (ARS for Argentina)
+- Ensure price is a valid number
+- Verify user is authenticated
+
+## Security Best Practices
+
+<Warning>
+  - Never expose `MERCADO_PAGO_ACCESS_TOKEN` in client-side code
+  - Always validate webhook data against Mercado Pago API
+  - Use HTTPS in production for webhook endpoint
+  - Implement idempotency keys for duplicate prevention
+  - Log all payment transactions for audit trail
+</Warning>
+
+## Related Documentation
+
+<CardGroup cols={2}>
+  <Card title="Mercado Pago Documentation" icon="book" href="https://www.mercadopago.com/developers/en/docs">
+    Official Mercado Pago developer documentation
+  </Card>
+  <Card title="Calendar Setup" icon="calendar" href="/admin/calendar-setup">
+    Configure Google Calendar integration for classes
+  </Card>
+  <Card title="Webhook Guide" icon="webhook">
+    Understanding webhooks and event-driven architecture
+  </Card>
+  <Card title="Class Management" icon="chalkboard-user" href="/admin/class-management">
+    Managing virtual classes after payment
+  </Card>
+</CardGroup>

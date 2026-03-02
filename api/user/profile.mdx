@@ -1,0 +1,182 @@
+---
+title: "Get User Profile"
+description: "Retrieve authenticated user's profile data including location, English level, phone, and newsletter preferences"
+---
+
+## GET /api/user-data
+
+Retrieves the profile information for the currently authenticated user. This endpoint requires authentication and returns user-specific settings and preferences.
+
+### Authentication
+
+This endpoint requires a valid session token. If the user is not authenticated, the API returns a 401 Unauthorized error.
+
+### Response
+
+<ResponseField name="localidad" type="string">
+  User's location or city
+</ResponseField>
+
+<ResponseField name="nivel" type="string">
+  User's English proficiency level. Possible values:
+  - `inicial` - Beginner level
+  - `basico` - Basic level
+  - `intermedio` - Intermediate level
+  - `avanzado` - Advanced level
+</ResponseField>
+
+<ResponseField name="telefono" type="number">
+  User's phone number
+</ResponseField>
+
+<ResponseField name="newsletter" type="string">
+  Newsletter subscription preference. Possible values:
+  - `si` - Subscribed to newsletter
+  - `no` - Not subscribed to newsletter
+</ResponseField>
+
+### Response Example
+
+```json
+{
+  "localidad": "Buenos Aires",
+  "nivel": "intermedio",
+  "telefono": 1234567890,
+  "newsletter": "si"
+}
+```
+
+### cURL Example
+
+```bash
+curl -X GET https://your-domain.com/api/user-data \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN" \
+  -H "Content-Type: application/json"
+```
+
+### Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+#### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+#### 500 Internal Server Error
+
+```json
+{
+  "error": "Failed to fetch user data"
+}
+```
+
+## POST /api/user-data
+
+Updates the profile information for the currently authenticated user.
+
+### Authentication
+
+This endpoint requires a valid session token. The user ID is automatically extracted from the session.
+
+### Request Body
+
+<ParamField body="localidad" type="string" required>
+  User's location or city
+</ParamField>
+
+<ParamField body="nivel" type="string" required>
+  User's English proficiency level. Must be one of:
+  - `inicial`
+  - `basico`
+  - `intermedio`
+  - `avanzado`
+</ParamField>
+
+<ParamField body="telefono" type="number" required>
+  User's phone number
+</ParamField>
+
+<ParamField body="newsletter" type="string" required>
+  Newsletter subscription preference. Must be either `si` or `no`
+</ParamField>
+
+### Request Example
+
+```json
+{
+  "localidad": "Buenos Aires",
+  "nivel": "avanzado",
+  "telefono": 1198765432,
+  "newsletter": "si"
+}
+```
+
+### Response
+
+<ResponseField name="message" type="string">
+  Success message confirming the data was received
+</ResponseField>
+
+<ResponseField name="data" type="object">
+  The complete updated user object from the database
+</ResponseField>
+
+### Response Example
+
+```json
+{
+  "message": "User data received",
+  "data": {
+    "id": "507f1f77bcf86cd799439011",
+    "email": "user@example.com",
+    "name": "John Doe",
+    "localidad": "Buenos Aires",
+    "nivel": "avanzado",
+    "telefono": 1198765432,
+    "newsletter": "si",
+    "status": true,
+    "totalClasses": 5,
+    "createdAt": "2025-01-15T10:30:00.000Z",
+    "updatedAt": "2025-03-02T14:20:00.000Z"
+  }
+}
+```
+
+### cURL Example
+
+```bash
+curl -X POST https://your-domain.com/api/user-data \
+  -H "Authorization: Bearer YOUR_SESSION_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "localidad": "Buenos Aires",
+    "nivel": "avanzado",
+    "telefono": 1198765432,
+    "newsletter": "si"
+  }'
+```
+
+### Error Responses
+
+#### 401 Unauthorized
+
+```json
+{
+  "error": "Unauthorized"
+}
+```
+
+## Related Models
+
+This endpoint interacts with the User model from the database schema. The User model includes additional fields such as:
+
+- `totalClasses` - Total number of completed classes (incremented automatically)
+- `status` - User account status
+- `UserActivity[]` - Related user activity records
+- `createdAt` / `updatedAt` - Timestamps

@@ -1,0 +1,194 @@
+---
+title: 'Mercado Pago Webhooks'
+description: 'Handle real-time payment notifications from Mercado Pago'
+---
+
+## POST /api/mercado-pago/webhook
+
+Receives and processes webhook notifications from Mercado Pago when payment events occur. This endpoint automatically updates payment status and creates virtual class events when payments are approved.
+
+### Webhook Events
+
+Mercado Pago sends different types of webhook notifications:
+
+<ParamField name="topic" type="string">
+  The event type being notified. Possible values:
+  - `payment` - Direct payment notification (ignored by this endpoint)
+  - `merchant_order` - Order status update (primary event handled)
+</ParamField>
+
+<ParamField name="resource" type="string">
+  URL to fetch detailed information about the event
+</ParamField>
+
+### Event Processing Flow
+
+1. **Receive Webhook**: Mercado Pago sends POST request with event data
+2. **Parse Event Type**: Check if it's a `merchant_order` event
+3. **Fetch Order Details**: Query the resource URL for complete order information
+4. **Check Payment Status**: Verify if payment status is `approved`
+5. **Update Database**: Update `PaymentMercadoPago` record status
+6. **Create Virtual Class**: Automatically create Google Calendar event for the class
+
+### Request Body
+
+```json
+{
+  "topic": "merchant_order",
+  "resource": "https://api.mercadopago.com/merchant_orders/123456789"
+}
+```
+
+### Merchant Order Response
+
+When fetching the resource URL, Mercado Pago returns:
+
+<ResponseField name="preference_id" type="string">
+  The preference ID that links to the payment record
+</ResponseField>
+
+<ResponseField name="payments" type="array">
+  Array of payment objects associated with the order
+</ResponseField>
+
+<ResponseField name="payments[].status" type="string">
+  Payment status: `approved`, `pending`, or `rejected`
+</ResponseField>
+
+### Example Merchant Order
+
+```json
+{
+  "id": 123456789,
+  "preference_id": "123456789-a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "payments": [
+    {
+      "id": 987654321,
+      "status": "approved",
+      "transaction_amount": 10,
+      "currency_id": "ARS"
+    }
+  ]
+}
+```
+
+### Payment Status Values
+
+<ResponseField name="approved" type="string">
+  Payment was successfully processed and accepted
+</ResponseField>
+
+<ResponseField name="pending" type="string">
+  Payment is awaiting confirmation or processing
+</ResponseField>
+
+<ResponseField name="rejected" type="string">
+  Payment was declined or failed
+</ResponseField>
+
+### Automated Actions
+
+When a payment is **approved**, the webhook automatically:
+
+1. **Updates Payment Status**: Changes `PaymentMercadoPago.status` to `approved`
+2. **Creates Virtual Class**: Calls `/api/calendar` endpoint to create Google Meet event
+3. **Links Preference**: Associates the virtual class with the payment preference ID
+
+### Example Webhook Flow
+
+```bash
+# 1. Mercado Pago sends webhook notification
+POST https://your-domain.com/api/mercado-pago/webhook
+Content-Type: application/json
+
+{
+  "topic": "merchant_order",
+  "resource": "https://api.mercadopago.com/merchant_orders/123456789"
+}
+
+# 2. Server fetches order details
+GET https://api.mercadopago.com/merchant_orders/123456789
+Authorization: Bearer YOUR_ACCESS_TOKEN
+
+# 3. Server processes approved payment
+# - Updates PaymentMercadoPago record
+# - Creates VirtualClass event
+# - Returns success response
+
+# 4. Response to Mercado Pago
+{
+  "ok": true,
+  "status": 200
+}
+```
+
+### Response
+
+<ResponseField name="ok" type="boolean">
+  Indicates whether the webhook was processed successfully
+</ResponseField>
+
+<ResponseField name="status" type="number">
+  HTTP status code (200 for success, 500 for error)
+</ResponseField>
+
+### Success Response
+
+```json
+{
+  "ok": true,
+  "status": 200
+}
+```
+
+### Error Handling
+
+The webhook gracefully handles various scenarios:
+
+- **Missing resource URL**: Returns `ok: true` to acknowledge receipt
+- **No payments in order**: Returns `ok: true` and logs warning
+- **Non-approved payments**: Acknowledges but doesn't process
+- **Database errors**: Returns `ok: false` with 500 status
+
+### Security Considerations
+
+<Note>
+  Unlike Stripe, Mercado Pago does **not** sign webhook requests. Ensure your webhook URL is kept secure and validate payment status by fetching data directly from Mercado Pago's API using the resource URL.
+</Note>
+
+### Configuration
+
+Set up your webhook URL in the Mercado Pago dashboard:
+
+1. Go to your [Mercado Pago Dashboard](https://www.mercadopago.com.ar/developers/panel)
+2. Navigate to **Webhooks** section
+3. Add your webhook URL: `https://your-domain.com/api/mercado-pago/webhook`
+4. Select event type: `merchant_order`
+
+### Testing Webhooks
+
+For local development, use a tunnel service like ngrok:
+
+```bash
+# Start ngrok tunnel
+ngrok http 3000
+
+# Use the ngrok URL for webhook
+https://abc123.ngrok.io/api/mercado-pago/webhook
+```
+
+### Retry Logic
+
+Mercado Pago automatically retries webhook deliveries if:
+- Your server returns a non-2xx status code
+- The request times out
+- Connection fails
+
+Retries occur with exponential backoff over several hours.
+
+### Best Practices
+
+- **Idempotency**: Ensure your webhook handler can process the same event multiple times safely
+- **Quick Response**: Return 200 status quickly, process heavy operations asynchronously
+- **Logging**: Log all webhook events for debugging and audit trails
+- **Validation**: Always fetch fresh data from Mercado Pago's API using the resource URL

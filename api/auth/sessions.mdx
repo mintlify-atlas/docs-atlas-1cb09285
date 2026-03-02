@@ -1,0 +1,491 @@
+---
+title: 'Session Management'
+description: 'Understanding JWT tokens, session lifecycle, and session data structure'
+---
+
+## Overview
+
+The platform uses JSON Web Tokens (JWT) for session management with NextAuth.js. Sessions are configured with a 30-day expiration and include user information, authentication tokens, and custom claims.
+
+## Session Configuration
+
+Sessions are configured in `src/auth.ts:27`:
+
+```typescript
+session: {
+  maxAge: 60 * 60 * 24 * 30, // 30 days (2,592,000 seconds)
+  updateAge: 43200 // 12 hours (43,200 seconds)
+},
+jwt: {
+  maxAge: 60 * 60 * 24 * 30 // 30 days
+}
+```
+
+### Configuration Parameters
+
+<ParamField path="session.maxAge" type="number" default={2592000}>
+  Maximum session duration in seconds (30 days). After this period, users must re-authenticate.
+</ParamField>
+
+<ParamField path="session.updateAge" type="number" default={43200}>
+  Session update interval in seconds (12 hours). The session is refreshed every 12 hours to extend its lifetime.
+</ParamField>
+
+<ParamField path="jwt.maxAge" type="number" default={2592000}>
+  JWT token maximum age in seconds (30 days). Must match or exceed session.maxAge.
+</ParamField>
+
+## JWT Token Structure
+
+The JWT token is created and enriched in the `jwt` callback (`src/auth.ts:55`):
+
+```typescript
+async jwt({ token, account, profile }) {
+  if (account && profile) {
+    const user = await db.user.findUnique({
+      where: { email: profile.email! },
+      select: { id: true, totalClasses: true }
+    })
+    
+    if (user) {
+      token.id = user?.id
+      token.iat = Math.floor(Date.now() / 1000)
+      token.exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 30
+      token.accessToken = account.access_token
+      
+      if (profile.email === process.env.ADMIN_EMAIL! && account.refresh_token) {
+        token.refreshToken = account.refresh_token
+        await updateRefreshTokenInDb(user.id, token.refreshToken as string)
+      }
+    }
+  }
+
+  return token;
+}
+```
+
+### Token Claims
+
+<ResponseField name="id" type="string">
+  User's database ID from the `user` table
+</ResponseField>
+
+<ResponseField name="sub" type="string">
+  Subject - OAuth provider's unique identifier for the user
+</ResponseField>
+
+<ResponseField name="jti" type="string">
+  JWT ID - unique identifier for this specific token
+</ResponseField>
+
+<ResponseField name="iat" type="number">
+  Issued At - Unix timestamp when the token was created
+</ResponseField>
+
+<ResponseField name="exp" type="number">
+  Expiration - Unix timestamp when the token expires (30 days from iat)
+</ResponseField>
+
+<ResponseField name="accessToken" type="string">
+  OAuth access token for making API calls to Google/GitHub
+</ResponseField>
+
+<ResponseField name="refreshToken" type="string" optional>
+  OAuth refresh token (only for admin users) - used to obtain new access tokens
+</ResponseField>
+
+## Session Object Structure
+
+The session callback (`src/auth.ts:87`) transforms the JWT into the session object:
+
+```typescript
+async session({ session, token }: { session: any; token: any }) {
+  if (token) {
+    session.user.id = String(token.id)
+    session.token = token
+    session.user.sub = String(token.sub)
+    session.user.jti = String(token.jti)
+    session.user.iat = String(token.iat)
+    session.user.exp = String(token.exp)
+    session.user.accessToken = token.accessToken
+    
+    if (token.refreshToken && session.user.email === process.env.ADMIN_EMAIL) {
+      session.user.refreshToken = token.refreshToken
+    }
+  }
+  
+  return session;
+}
+```
+
+### Session Schema
+
+<ResponseField name="user" type="object">
+  User information and authentication data
+  
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      User's database ID
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      User's full name from OAuth provider
+    </ResponseField>
+    
+    <ResponseField name="email" type="string">
+      User's email address
+    </ResponseField>
+    
+    <ResponseField name="image" type="string">
+      URL to user's profile picture
+    </ResponseField>
+    
+    <ResponseField name="sub" type="string">
+      Subject identifier - identifies who the token represents
+    </ResponseField>
+    
+    <ResponseField name="jti" type="string">
+      JWT identifier - unique ID for this token
+    </ResponseField>
+    
+    <ResponseField name="iat" type="string">
+      Issued at timestamp (as string)
+    </ResponseField>
+    
+    <ResponseField name="exp" type="string">
+      Expiration timestamp (as string)
+    </ResponseField>
+    
+    <ResponseField name="accessToken" type="string">
+      OAuth access token for API calls
+    </ResponseField>
+    
+    <ResponseField name="refreshToken" type="string" optional>
+      OAuth refresh token (admin users only)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="expires" type="string">
+  ISO 8601 formatted expiration date/time
+</ResponseField>
+
+<ResponseField name="token" type="object">
+  Complete JWT token object (contains all JWT claims)
+</ResponseField>
+
+## Accessing Sessions
+
+### Server Components
+
+```typescript
+import { auth } from '@/auth'
+
+export default async function Page() {
+  const session = await auth()
+  
+  if (!session) {
+    return <div>Please sign in</div>
+  }
+  
+  return (
+    <div>
+      <h1>Welcome, {session.user.name}!</h1>
+      <p>Email: {session.user.email}</p>
+      <p>Session expires: {session.expires}</p>
+    </div>
+  )
+}
+```
+
+### Server Actions
+
+```typescript
+'use server'
+import { auth } from '@/auth'
+
+export async function getCurrentUser() {
+  const session = await auth()
+  
+  if (!session?.user) {
+    throw new Error('Not authenticated')
+  }
+  
+  return {
+    id: session.user.id,
+    email: session.user.email,
+    name: session.user.name
+  }
+}
+```
+
+### API Routes
+
+```typescript
+import { auth } from '@/auth'
+import { NextRequest, NextResponse } from 'next/server'
+
+export async function GET(request: NextRequest) {
+  const session = await auth()
+  
+  if (!session) {
+    return NextResponse.json(
+      { error: 'Unauthorized' },
+      { status: 401 }
+    )
+  }
+  
+  return NextResponse.json({
+    user: session.user
+  })
+}
+```
+
+### Client Components (using next-auth/react)
+
+```typescript
+'use client'
+import { useSession } from 'next-auth/react'
+
+export default function ClientComponent() {
+  const { data: session, status } = useSession()
+  
+  if (status === 'loading') {
+    return <div>Loading...</div>
+  }
+  
+  if (status === 'unauthenticated') {
+    return <div>Please sign in</div>
+  }
+  
+  return <div>Signed in as {session?.user?.email}</div>
+}
+```
+
+## Session API Endpoints
+
+### Get Current Session
+
+<CodeGroup>
+
+```bash cURL
+curl http://localhost:3000/api/auth/session \
+  -H "Cookie: authjs.session-token=YOUR_SESSION_TOKEN"
+```
+
+```typescript fetch
+const session = await fetch('/api/auth/session')
+  .then(res => res.json());
+console.log(session);
+```
+
+```javascript JavaScript
+fetch('/api/auth/session', {
+  credentials: 'include'
+})
+  .then(res => res.json())
+  .then(data => console.log(data));
+```
+
+</CodeGroup>
+
+**Response:**
+
+```json
+{
+  "user": {
+    "id": "clx1234567890",
+    "name": "John Doe",
+    "email": "john@example.com",
+    "image": "https://lh3.googleusercontent.com/a/...",
+    "sub": "google-oauth2|123456789",
+    "jti": "abc123xyz",
+    "iat": "1709568000",
+    "exp": "1712160000",
+    "accessToken": "ya29.a0AfH6SMB..."
+  },
+  "expires": "2024-04-03T10:00:00.000Z"
+}
+```
+
+## Session Lifecycle
+
+<Steps>
+  <Step title="Authentication">
+    User signs in via OAuth provider (Google/GitHub)
+  </Step>
+  
+  <Step title="Token Creation">
+    JWT token is created with user data and OAuth tokens (30-day expiration)
+  </Step>
+  
+  <Step title="Session Storage">
+    Encrypted session cookie is set in the browser with HTTP-only flag
+  </Step>
+  
+  <Step title="Session Updates">
+    Session is automatically refreshed every 12 hours (updateAge) to extend lifetime
+  </Step>
+  
+  <Step title="Session Expiration">
+    After 30 days (maxAge), session expires and user must re-authenticate
+  </Step>
+</Steps>
+
+## Session Refresh
+
+Sessions are automatically refreshed based on the `updateAge` configuration:
+
+- **updateAge: 43200** (12 hours)
+- When a session is accessed and more than 12 hours have passed since last update, NextAuth automatically refreshes it
+- The refresh extends the session lifetime by resetting the expiration time
+- This happens transparently without user interaction
+
+## Admin Sessions
+
+Admin users (identified by `ADMIN_EMAIL` environment variable) receive additional privileges:
+
+<ResponseField name="refreshToken" type="string">
+  Google OAuth refresh token stored in both JWT and database
+</ResponseField>
+
+### Admin Detection
+
+```typescript
+if (profile.email === process.env.ADMIN_EMAIL! && account.refresh_token) {
+  token.refreshToken = account.refresh_token
+  await updateRefreshTokenInDb(user.id, token.refreshToken as string)
+}
+```
+
+### Checking Admin Status
+
+```typescript
+import { auth } from '@/auth'
+
+export async function isAdmin() {
+  const session = await auth()
+  
+  return session?.user?.email === process.env.ADMIN_EMAIL
+}
+```
+
+## Session Security
+
+<AccordionGroup>
+  <Accordion title="HTTP-Only Cookies">
+    Session tokens are stored in HTTP-only cookies, preventing access from client-side JavaScript and protecting against XSS attacks.
+  </Accordion>
+
+  <Accordion title="Encryption">
+    JWT tokens are encrypted using NextAuth's built-in encryption, ensuring sensitive data like access tokens cannot be read by clients.
+  </Accordion>
+
+  <Accordion title="Secure Flag">
+    In production, session cookies use the Secure flag, ensuring they're only transmitted over HTTPS.
+  </Accordion>
+
+  <Accordion title="SameSite Protection">
+    Cookies are configured with SameSite attribute to prevent CSRF attacks.
+  </Accordion>
+
+  <Accordion title="Token Rotation">
+    Sessions are automatically refreshed every 12 hours, limiting the window of opportunity if a token is compromised.
+  </Accordion>
+</AccordionGroup>
+
+## Redirect Configuration
+
+Custom redirect logic is defined in `src/auth.ts:106`:
+
+```typescript
+async redirect({ url, baseUrl }: { url: string; baseUrl: string }) {
+  if (url?.startsWith(baseUrl)) return url
+  return '/inicio'
+}
+```
+
+- After successful sign-in, users are redirected to `/inicio`
+- If a return URL is specified and matches the base URL, that URL is used instead
+- This prevents open redirect vulnerabilities
+
+## Custom Pages
+
+Session-related pages are customized in the configuration (`src/auth.ts:111`):
+
+<ParamField path="signIn" type="string" default="/inicio">
+  Custom sign-in page path
+</ParamField>
+
+<ParamField path="signOut" type="string" default="">
+  Custom sign-out page (empty string uses default)
+</ParamField>
+
+<ParamField path="error" type="string" default="/">
+  Error page for authentication failures
+</ParamField>
+
+## Testing Sessions
+
+### Get Session Info
+
+```bash
+# Get session via API
+curl -X GET http://localhost:3000/api/auth/session \
+  -H "Cookie: authjs.session-token=YOUR_TOKEN" \
+  | jq
+```
+
+### Check Token Expiration
+
+```typescript
+import { auth } from '@/auth'
+
+export async function checkExpiration() {
+  const session = await auth()
+  
+  if (!session?.user?.exp) {
+    return 'No session'
+  }
+  
+  const expiresAt = parseInt(session.user.exp) * 1000
+  const now = Date.now()
+  const timeLeft = expiresAt - now
+  
+  return {
+    expiresAt: new Date(expiresAt).toISOString(),
+    timeLeftInHours: Math.floor(timeLeft / 1000 / 60 / 60)
+  }
+}
+```
+
+## Common Issues
+
+<AccordionGroup>
+  <Accordion title="Session undefined in client component">
+    **Solution**: Wrap your app with `<SessionProvider>` from `next-auth/react` to enable client-side session access.
+  </Accordion>
+
+  <Accordion title="Session not persisting">
+    **Solution**: Ensure cookies are enabled in the browser and the domain/path settings are correct. Check that NEXTAUTH_URL is properly configured.
+  </Accordion>
+
+  <Accordion title="Session expires too quickly">
+    **Solution**: Check `session.maxAge` and `jwt.maxAge` configuration. Ensure they're set to the desired duration in seconds.
+  </Accordion>
+
+  <Accordion title="Access token expired">
+    **Solution**: Implement token refresh logic using the refresh token (admin only) or require the user to re-authenticate.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Google OAuth" icon="google" href="/api/auth/google-oauth">
+    Learn about Google OAuth implementation
+  </Card>
+  <Card title="Authentication Overview" icon="shield" href="/api/auth/overview">
+    Back to authentication overview
+  </Card>
+</CardGroup>

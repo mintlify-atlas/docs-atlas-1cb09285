@@ -1,0 +1,608 @@
+---
+title: "Learning Activities"
+description: "Implement AI-powered learning activities including exams, audio, video, and reading exercises with automatic grading and feedback"
+---
+
+## Overview
+
+The learning activities system provides AI-generated exercises and exams for students to practice English. Activities are assigned after virtual classes and include automated grading with detailed solutions.
+
+## Activity Types
+
+The platform supports four types of learning activities:
+
+<CodeGroup>
+```prisma prisma/schema.prisma
+enum Type {
+  exam
+  audio
+  video
+  reading
+}
+
+enum Level {
+  easy
+  medium
+  hard
+}
+
+enum ActivityStatus {
+  uploaded
+  pending
+}
+```
+</CodeGroup>
+
+<Tabs>
+  <Tab title="Exams">
+    Comprehensive tests covering grammar, vocabulary, and comprehension.
+    - Multiple question formats
+    - Timed or untimed
+    - Automated scoring
+  </Tab>
+  <Tab title="Audio">
+    Listening comprehension exercises.
+    - Audio file integration
+    - Transcription tasks
+    - Accent recognition
+  </Tab>
+  <Tab title="Video">
+    Video-based learning activities.
+    - YouTube or embedded videos
+    - Comprehension questions
+    - Subtitle analysis
+  </Tab>
+  <Tab title="Reading">
+    Text comprehension exercises.
+    - Article or passage reading
+    - Vocabulary building
+    - Context understanding
+  </Tab>
+</Tabs>
+
+## Task Model
+
+Activities are stored in the `Task` model with AI-generated content:
+
+<CodeGroup>
+```prisma prisma/schema.prisma
+model Task {
+  id            String         @id @default(auto()) @map("_id") @db.ObjectId
+  title         String
+  content       String         // Markdown AI-generated questions
+  solvedContent String         // Markdown answer AI-generated solutions
+  description   String         // Short description about the task
+  type          Type
+  difficulty    Level          @default(medium)
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  UserActivity  UserActivity[]
+}
+```
+</CodeGroup>
+
+<Note>
+**Content Format**: Both `content` and `solvedContent` use Markdown format for rich text formatting, tables, code blocks, and structured exercises.
+</Note>
+
+## Activity Flow
+
+### 1. Activity Assignment
+
+Activities are linked to virtual classes through the `UserActivity` junction table:
+
+<CodeGroup>
+```typescript services/functions/index.ts
+// Create user activity after class scheduling
+if (newClass) {
+  await db.userActivity.create({
+    data: {
+      userId: newClass.bookedById,
+      classId: newClass.id,
+      taskId: null,  // Assigned later
+      rol: 'anfitrion',
+      completed: false
+    }
+  });
+}
+```
+</CodeGroup>
+
+### 2. Activity Page
+
+Students can view activity details before starting:
+
+<CodeGroup>
+```tsx app/(main)/actividad/[actividadId]/page.tsx
+const ActividadPage = async ({ params }: Props) => {
+  const resolvedParams = await params;
+  const task = await getTask(resolvedParams.actividadId);
+  
+  if (!task) return notFound();
+
+  return (
+    <section className="border max-w-6xl px-2 py-4 space-y-4">
+      <h1>Actividad: {task.title}</h1>
+      
+      <div>
+        <p>Instrucciones:</p>
+        <p>Estas por entrar a resolver la actividad, podes completarla 
+           cuando vos quieras y todas las veces que necesites. A los 90 
+           minutos despues de iniciada la actividad tendras acceso a un 
+           documentos con las resolucion correcta para que puedas comparar 
+           tus respuestas</p>
+      </div>
+      
+      <div>
+        <p>Descripciones:</p>
+        <ReactMarkdown
+          components={components}
+          remarkPlugins={[remarkGfm]}
+        >
+          {task.description}
+        </ReactMarkdown>
+      </div>
+      
+      <div>
+        <p>Dificultad: {translateDifficulty(task.difficulty)}</p>
+        <p>Tipo: {translateType(task.type)}</p>
+      </div>
+      
+      <a href={`/actividad/${task.id}/resolver`}>
+        Comenzar actividad
+      </a>
+    </section>
+  );
+};
+```
+</CodeGroup>
+
+### 3. Activity Resolver
+
+The resolver page displays the activity content and allows students to work through it:
+
+<CodeGroup>
+```tsx app/(main)/actividad/[actividadId]/resolver/page.tsx
+const ResolverActividad = async ({ params }: Props) => {
+  const resolvedParams = await params;
+  const task = await getTask(resolvedParams.actividadId);
+  
+  // Mark task as started
+  await markTaskComplete(resolvedParams.actividadId);
+
+  return (
+    <section className="border max-w-6xl px-1 py-4 space-y-4">
+      {/* Answer sidebar with solutions (timed reveal) */}
+      <AnswerSidebar 
+        taskSolved={task?.solvedContent} 
+        updatedAt={task?.updatedAt} 
+      />
+      
+      {/* Main activity content */}
+      <ExamMarkdown content={task?.content} />
+    </section>
+  );
+};
+```
+</CodeGroup>
+
+## Markdown Rendering
+
+Activities use custom Markdown components for enhanced formatting:
+
+<CodeGroup>
+```tsx app/(main)/actividad/[actividadId]/page.tsx
+const components: Record<string, React.ComponentType<any>> = {
+  // Tables
+  table: ({ children }) => (
+    <table className="w-full border-collapse my-4 rounded-lg">
+      {children}
+    </table>
+  ),
+  thead: ({ children }) => (
+    <thead className="bg-yellow-50 dark:bg-black/30">
+      {children}
+    </thead>
+  ),
+  th: ({ children }) => (
+    <th className="text-left font-semibold px-4 py-2 border-b">
+      {children}
+    </th>
+  ),
+  tbody: ({ children }) => <tbody>{children}</tbody>,
+  tr: ({ children }) => <tr>{children}</tr>,
+  td: ({ children }) => (
+    <td className="p-4 text-xs border-b">
+      {children}
+    </td>
+  ),
+
+  // Code blocks
+  code: ({ children }) => (
+    <code className="bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded">
+      {children}
+    </code>
+  ),
+  pre: ({ children }) => (
+    <pre className="bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto">
+      {children}
+    </pre>
+  ),
+};
+
+<ReactMarkdown
+  components={components}
+  remarkPlugins={[remarkGfm]}
+>
+  {task.content}
+</ReactMarkdown>
+```
+</CodeGroup>
+
+<Info>
+The `remarkGfm` plugin enables GitHub Flavored Markdown, supporting tables, task lists, and strikethrough text.
+</Info>
+
+## Activity Status Tracking
+
+Virtual classes track whether students have completed their assigned activities:
+
+<CodeGroup>
+```prisma prisma/schema.prisma
+model VirtualClass {
+  // ...
+  activityStatus ActivityStatus @default(pending)
+  // ...
+}
+
+model UserActivity {
+  id        String   @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String   @db.ObjectId
+  taskId    String?  @db.ObjectId  // Links to Task
+  classId   String   @db.ObjectId  // Links to VirtualClass
+  rol       classRole
+  completed Boolean? @default(false)  // Activity completion status
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+```
+</CodeGroup>
+
+## Answer Reveal System
+
+The `AnswerSidebar` component reveals solutions after 90 minutes:
+
+<CodeGroup>
+```tsx components/AnswerSidebar.tsx
+interface AnswerSidebarProps {
+  taskSolved: string;  // AI-generated solutions in Markdown
+  updatedAt: Date;     // Task start timestamp
+}
+
+const AnswerSidebar = ({ taskSolved, updatedAt }: AnswerSidebarProps) => {
+  const [timeElapsed, setTimeElapsed] = useState(0);
+  const REVEAL_TIME = 90 * 60 * 1000; // 90 minutes in milliseconds
+  
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const elapsed = Date.now() - new Date(updatedAt).getTime();
+      setTimeElapsed(elapsed);
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [updatedAt]);
+  
+  const canViewAnswers = timeElapsed >= REVEAL_TIME;
+  
+  return (
+    <aside>
+      {canViewAnswers ? (
+        <ReactMarkdown>{taskSolved}</ReactMarkdown>
+      ) : (
+        <p>Respuestas disponibles en {formatTime(REVEAL_TIME - timeElapsed)}</p>
+      )}
+    </aside>
+  );
+};
+```
+</CodeGroup>
+
+## AI Content Generation
+
+Activities use AI-generated content in Markdown format. Here's an example structure:
+
+<CodeGroup>
+```markdown Example Task Content
+# English Grammar Exercise
+
+## Part 1: Fill in the Blanks
+
+Complete the sentences with the correct form of the verb in parentheses.
+
+1. She _________ (go) to the store every Saturday.
+2. They _________ (watch) a movie when I called.
+3. He _________ (live) in London since 2015.
+
+## Part 2: Multiple Choice
+
+Choose the correct answer:
+
+**Question 1:** What is the past tense of "run"?
+- A) runned
+- B) ran
+- C) running
+- D) runs
+
+**Question 2:** Which sentence is correct?
+- A) He don't like coffee.
+- B) He doesn't likes coffee.
+- C) He doesn't like coffee.
+- D) He not like coffee.
+
+## Part 3: Reading Comprehension
+
+Read the passage and answer the questions:
+
+> John wakes up at 6 AM every morning. He goes for a jog in the park 
+> before having breakfast. After breakfast, he drives to work...
+
+1. What time does John wake up?
+2. What does he do before breakfast?
+```
+
+```markdown Example Solved Content
+# Answer Key
+
+## Part 1: Fill in the Blanks
+
+1. **goes** - Present simple for habitual actions
+2. **were watching** - Past continuous interrupted by simple past
+3. **has lived** - Present perfect with 'since'
+
+## Part 2: Multiple Choice
+
+**Question 1:** B) ran
+- Explanation: "Ran" is the irregular past tense of "run"
+
+**Question 2:** C) He doesn't like coffee.
+- Explanation: Third person singular uses "doesn't" + base verb
+
+## Part 3: Reading Comprehension
+
+1. **6 AM** - Stated in first sentence
+2. **Goes for a jog in the park** - Mentioned as pre-breakfast activity
+```
+</CodeGroup>
+
+## Difficulty Levels
+
+The system supports three difficulty levels:
+
+<Tabs>
+  <Tab title="Easy (Inicial)">
+    - Basic vocabulary and grammar
+    - Simple sentence structures
+    - Clear, direct questions
+    - Shorter reading passages
+  </Tab>
+  <Tab title="Medium (Intermedio)">
+    - Intermediate vocabulary
+    - Complex sentences
+    - Context-based questions
+    - Longer passages
+  </Tab>
+  <Tab title="Hard (Avanzado)">
+    - Advanced vocabulary
+    - Idiomatic expressions
+    - Inference questions
+    - Academic or professional content
+  </Tab>
+</Tabs>
+
+## Utility Functions
+
+Helper functions translate database enums to Spanish:
+
+<CodeGroup>
+```typescript lib/utils.ts
+export function translateDifficulty(difficulty: Level): string {
+  const translations = {
+    easy: 'Fácil',
+    medium: 'Medio',
+    hard: 'Difícil'
+  };
+  return translations[difficulty];
+}
+
+export function translateType(type: Type): string {
+  const translations = {
+    exam: 'Examen',
+    audio: 'Audio',
+    video: 'Video',
+    reading: 'Lectura'
+  };
+  return translations[type];
+}
+```
+</CodeGroup>
+
+## Database Queries
+
+Common queries for activity management:
+
+<CodeGroup>
+```typescript app/(main)/actividad/actions.ts
+// Get single task
+export async function getTask(taskId: string) {
+  const task = await db.task.findUnique({
+    where: { id: taskId },
+    include: {
+      UserActivity: {
+        include: {
+          user: true,
+          class: true
+        }
+      }
+    }
+  });
+  return task;
+}
+
+// Mark task as complete
+export async function markTaskComplete(taskId: string) {
+  await db.userActivity.updateMany({
+    where: { taskId },
+    data: { completed: true }
+  });
+}
+
+// Get user's activities
+export async function getUserActivities(userId: string) {
+  const activities = await db.userActivity.findMany({
+    where: { userId },
+    include: {
+      task: true,
+      class: true
+    },
+    orderBy: { createdAt: 'desc' }
+  });
+  return activities;
+}
+```
+</CodeGroup>
+
+## Activity Display
+
+The class card shows activity status:
+
+<CodeGroup>
+```tsx components/mis-clases-virtuales/EachClass.tsx
+<Card className='flex border border-card'>
+  {/* ...class details... */}
+  
+  <p className='font-bold xl:font-normal capitalize'>
+    <span className='block lg:hidden'>Tarea IA: </span>
+    {classItem.activityStatus === 'uploaded' 
+      ? 'Realizada' 
+      : 'No Realizada'
+    }
+  </p>
+</Card>
+```
+</CodeGroup>
+
+## Integration with Virtual Classes
+
+Activities are assigned based on class completion:
+
+<CodeGroup>
+```typescript Post-Class Activity Assignment
+// After a virtual class ends, assign activity
+async function assignPostClassActivity(
+  classId: string, 
+  userId: string, 
+  userLevel: NivelIngles
+) {
+  // Select appropriate difficulty based on user level
+  const difficulty = {
+    inicial: 'easy',
+    basico: 'easy',
+    intermedio: 'medium',
+    avanzado: 'hard'
+  }[userLevel];
+  
+  // Find or create suitable task
+  const task = await db.task.findFirst({
+    where: {
+      difficulty: difficulty,
+      type: 'exam'  // Default to exam type
+    }
+  });
+  
+  // Link task to user activity
+  await db.userActivity.updateMany({
+    where: {
+      classId,
+      userId,
+      taskId: null
+    },
+    data: {
+      taskId: task.id
+    }
+  });
+  
+  // Update class activity status
+  await db.virtualClass.update({
+    where: { id: classId },
+    data: { activityStatus: 'uploaded' }
+  });
+}
+```
+</CodeGroup>
+
+## Best Practices
+
+<Card title="Content Quality" icon="stars">
+- Use clear, grammatically correct English in all activities
+- Provide detailed explanations in solutions
+- Include context and examples in answer keys
+- Test activities before assigning to students
+</Card>
+
+<Card title="Difficulty Matching" icon="chart-line">
+- Align activity difficulty with user's English level
+- Start easier and progressively increase complexity
+- Consider class focus when selecting activity types
+- Track completion rates to adjust difficulty
+</Card>
+
+<Card title="Markdown Best Practices" icon="markdown">
+- Use headers to organize sections
+- Leverage tables for structured data
+- Include code blocks for grammar rules or examples
+- Add emphasis with bold and italics
+</Card>
+
+## API Endpoints
+
+### Get Task
+
+<CodeGroup>
+```typescript
+GET /api/tasks/:taskId
+
+Response:
+{
+  "id": "507f1f77bcf86cd799439011",
+  "title": "Present Perfect Tense Exercise",
+  "description": "Practice using present perfect tense",
+  "type": "exam",
+  "difficulty": "medium",
+  "content": "# Exercise...\n\n## Part 1...",
+  "solvedContent": "# Answer Key...\n\n## Part 1...",
+  "createdAt": "2026-03-01T10:00:00Z",
+  "updatedAt": "2026-03-01T10:00:00Z"
+}
+```
+</CodeGroup>
+
+### Mark Activity Complete
+
+<CodeGroup>
+```typescript
+POST /api/activities/:activityId/complete
+
+Response:
+{
+  "success": true,
+  "completed": true,
+  "completedAt": "2026-03-01T11:30:00Z"
+}
+```
+</CodeGroup>
+
+## Related Features
+
+- [Virtual Classes](/features/virtual-classes) - Link activities to class sessions
+- [Payment System](/features/payment-system) - Access control based on payment status
+- [Calendar Integration](/features/calendar-integration) - Schedule activity deadlines

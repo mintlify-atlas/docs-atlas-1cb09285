@@ -1,0 +1,587 @@
+---
+title: Google Calendar Integration Setup
+description: Configure Google Calendar API for automatic virtual class scheduling and Google Meet link generation
+---
+
+The Speak English Now platform integrates with Google Calendar to automatically create calendar events with Google Meet links for each booked class.
+
+## Overview
+
+The Google Calendar integration provides:
+
+- Automatic event creation upon payment approval
+- Google Meet link generation for virtual classes
+- Calendar synchronization with admin's Google Calendar
+- Event management and updates
+- Time zone handling (America/Argentina/Buenos_Aires)
+
+## Prerequisites
+
+Before configuring Google Calendar integration:
+
+- Google Cloud Platform account
+- Google Calendar API enabled
+- OAuth 2.0 credentials configured
+- Admin user email set in environment variables
+
+## Environment Configuration
+
+### Required Environment Variables
+
+<ParamField path="CALENDAR_ID" type="string" required>
+  The Google Calendar ID where events will be created. Typically the admin user's email address:
+  ```
+  CALENDAR_ID="admin@yourdomain.com"
+  ```
+</ParamField>
+
+<ParamField path="CALENDAR_API_KEY" type="string" required>
+  Google Calendar API key for reading calendar availability. Obtain from:
+  1. Google Cloud Console > APIs & Services > Credentials
+  2. Create API Key
+  3. Restrict to Calendar API only
+</ParamField>
+
+<ParamField path="AUTH_GOOGLE_ID" type="string" required>
+  OAuth 2.0 Client ID from Google Cloud Console
+</ParamField>
+
+<ParamField path="AUTH_GOOGLE_SECRET" type="string" required>
+  OAuth 2.0 Client Secret from Google Cloud Console
+</ParamField>
+
+<ParamField path="GOOGLE_REDIRECT_URI" type="string" required>
+  OAuth callback URL:
+  ```
+  GOOGLE_REDIRECT_URI="https://yourdomain.com/api/auth/callback/google"
+  ```
+</ParamField>
+
+<ParamField path="ADMIN_EMAIL" type="string" required>
+  Email of the admin user whose calendar will be used
+</ParamField>
+
+**Implementation:** `src/app/api/calendar/route.ts:10, 47-55`
+
+### Optional: Service Account
+
+<ParamField path="GOOGLE_SERVICE_ACCOUNT_JSON" type="string (JSON)">
+  Service account credentials for server-to-server authentication.
+  Use this instead of OAuth if you don't need user-specific permissions.
+</ParamField>
+
+<Note>
+  The current implementation uses OAuth 2.0 with refresh tokens rather than service accounts. Service account code is commented out in the codebase.
+</Note>
+
+## Google Cloud Console Setup
+
+### Step 1: Create/Select Project
+
+1. Go to [Google Cloud Console](https://console.cloud.google.com)
+2. Create a new project or select existing:
+   - Project name: "Speak English Now" (or your choice)
+   - Organization: Your organization (optional)
+
+### Step 2: Enable Google Calendar API
+
+1. Navigate to "APIs & Services" > "Library"
+2. Search for "Google Calendar API"
+3. Click "Enable"
+
+### Step 3: Create OAuth 2.0 Credentials
+
+1. Go to "APIs & Services" > "Credentials"
+2. Click "+ CREATE CREDENTIALS" > "OAuth client ID"
+3. Configure consent screen if prompted:
+   - User Type: External (for testing) or Internal (for organization)
+   - App name: "Speak English Now"
+   - User support email: Your admin email
+   - Developer contact: Your admin email
+
+4. Add OAuth scopes:
+   ```
+   openid
+   email
+   profile
+   https://www.googleapis.com/auth/calendar.events
+   ```
+
+5. Create OAuth Client ID:
+   - Application type: **Web application**
+   - Name: "Speak English Now Web Client"
+   - Authorized JavaScript origins:
+     ```
+     http://localhost:3000
+     https://yourdomain.com
+     ```
+   - Authorized redirect URIs:
+     ```
+     http://localhost:3000/api/auth/callback/google
+     https://yourdomain.com/api/auth/callback/google
+     ```
+
+6. Copy credentials:
+   - Client ID → `AUTH_GOOGLE_ID`
+   - Client Secret → `AUTH_GOOGLE_SECRET`
+
+### Step 4: Create API Key
+
+1. Go to "APIs & Services" > "Credentials"
+2. Click "+ CREATE CREDENTIALS" > "API key"
+3. Restrict the API key:
+   - Click on the created key to edit
+   - API restrictions: "Restrict key"
+   - Select "Google Calendar API"
+   - Save
+4. Copy API key → `CALENDAR_API_KEY`
+
+## OAuth Scopes Configuration
+
+The application requests specific calendar permissions:
+
+**Implementation:** `src/auth.ts:19-25`
+
+```typescript
+Google({
+  clientId: process.env.AUTH_GOOGLE_ID,
+  clientSecret: process.env.AUTH_GOOGLE_SECRET,
+  authorization: {
+    params: {
+      scope: "openid email profile https://www.googleapis.com/auth/calendar.events",
+      access_type: "offline",
+    }
+  }
+})
+```
+
+### Scope Breakdown
+
+<ParamField path="openid" type="scope">
+  OpenID Connect authentication
+</ParamField>
+
+<ParamField path="email" type="scope">
+  Access to user's email address
+</ParamField>
+
+<ParamField path="profile" type="scope">
+  Access to user's basic profile information
+</ParamField>
+
+<ParamField path="https://www.googleapis.com/auth/calendar.events" type="scope">
+  Create, read, update, and delete calendar events
+</ParamField>
+
+<ParamField path="access_type: offline" type="param">
+  Request refresh token for persistent access
+</ParamField>
+
+<Warning>
+  The `access_type: "offline"` parameter is critical. Without it, you won't receive a refresh token, and calendar access will expire when the user's session ends.
+</Warning>
+
+## Refresh Token Storage
+
+For persistent calendar access, the admin user's refresh token is stored in the database.
+
+### Capturing Refresh Token
+
+**Implementation:** `src/auth.ts:73-76`
+
+```typescript
+if (profile.email === process.env.ADMIN_EMAIL! && account.refresh_token) {
+  token.refreshToken = account.refresh_token
+  console.log('THIS IS NEW THE refresh_token', token.refreshToken);
+  await updateRefreshTokenInDb(user.id, token.refreshToken as string)
+}
+```
+
+The refresh token is:
+1. Only captured for the admin user
+2. Stored in the User model's `googleRefreshToken` field
+3. Used to create access tokens for calendar API calls
+
+### Database Storage
+
+**Function:** `src/services/functions/index.ts:9-22`
+
+```typescript
+export async function updateRefreshTokenInDb(userId: string, refreshToken: string) {
+  try {
+    const response = await db.user.update({
+      where: { id: userId },
+      data: {
+        googleRefreshToken: refreshToken
+      }
+    })
+    return response
+  } catch (error) {
+    console.log(error);
+    return error
+  }
+}
+```
+
+### Retrieving Refresh Token
+
+**Function:** `src/services/functions/index.ts:24-37`
+
+```typescript
+export async function getRefreshTokenFromDb(userEmail: string) {
+  try {
+    const response = await db.user.findUnique({
+      where: { email: userEmail },
+      select: {
+        googleRefreshToken: true
+      }
+    })
+    return response?.googleRefreshToken
+  } catch (error) {
+    console.log(error);
+    return error
+  }
+}
+```
+
+## Reading Calendar Events
+
+The system can fetch existing calendar events to check availability.
+
+### GET Calendar Events
+
+**API Route:** `src/app/api/calendar/route.ts:9-36`
+
+```typescript
+export async function GET() {
+  const calendarId = process.env.CALENDAR_ID!;
+  const apiKey = process.env.CALENDAR_API_KEY!;
+  const now = new Date().toISOString();
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?key=${apiKey}&timeMin=${now}`;
+  
+  try {
+    const response = await KY(Method.GET, url);
+    const data = response.items as calendarEvent[];
+    
+    const cleanData: calendarEvent[] = data.map((ev) => ({
+      start: ev.start,
+      end: ev.end,
+      status: ev.status,
+    }));
+    
+    return NextResponse.json(cleanData);
+  } catch (error) {
+    console.log(error);
+    return NextResponse.json({ error: 'Failed to fetch calendar events' }, { status: 500 });
+  }
+}
+```
+
+This endpoint:
+- Uses API key authentication (read-only)
+- Fetches events from current time forward
+- Returns simplified event data (start, end, status)
+- Used for checking availability when booking
+
+## Creating Calendar Events
+
+When a payment is approved, the system creates a Google Calendar event with a Meet link.
+
+### Event Creation Flow
+
+**API Route:** `src/app/api/calendar/route.ts:40-86`
+
+```typescript
+export async function POST(request: NextRequest) {
+  try {
+    const { preferenceId } = await request.json();
+    const calendarId = process.env.CALENDAR_ID!;
+    
+    // Setup OAuth2 client
+    const auth = new google.auth.OAuth2(
+      process.env.AUTH_GOOGLE_ID,
+      process.env.AUTH_GOOGLE_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    )
+    
+    // Get admin's refresh token from database
+    const refreshToken = await getRefreshTokenFromDb(process.env.ADMIN_EMAIL!);
+    auth.setCredentials({ refresh_token: refreshToken as string });
+    
+    // Find the virtual class to schedule
+    const body = await findVirtualClass(preferenceId)
+    
+    if (!body?.success) {
+      return NextResponse.json({ error: "Virtual class not found" }, { status: 404 });
+    }
+    
+    const calendar = google.calendar({ version: 'v3', auth });
+    
+    // Create event in Google Calendar
+    const googleCalendarEvent = await createGoogleCalendarEvent(
+      calendarId, 
+      calendar, 
+      body.response
+    );
+    
+    if (googleCalendarEvent?.success) {
+      // Update virtual class with event details
+      await updateVirtualClass(googleCalendarEvent.response, body.response);
+    }
+    
+    return NextResponse.json({ success: true, message: "Event created successfully" });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json({ error: 'Failed to create calendar event' }, { status: 500 });
+  }
+}
+```
+
+### Event Structure
+
+**Function:** `src/services/functions/index.ts:115-154`
+
+```typescript
+export async function createGoogleCalendarEvent(calendarId: string, calendar: any, eventData: any) {
+  const { startTime, endTime, classType, maxParticipants } = eventData;
+  
+  const bookingClass = {
+    summary: `Clase de Inglés`,
+    description: `La clase sera ${classType} con x${maxParticipants == 0 ? 1 : maxParticipants} participantes`,
+    start: {
+      dateTime: startTime,
+      timeZone: 'America/Argentina/Buenos_Aires',
+    },
+    end: {
+      dateTime: endTime,
+      timeZone: 'America/Argentina/Buenos_Aires',
+    },
+    conferenceData: {
+      createRequest: {
+        requestId: `meet-${Date.now()}`,
+        conferenceSolutionKey: {
+          type: 'hangoutsMeet',
+        },
+      },
+    },
+    transparency: "opaque", // Shows as busy in calendar
+  }
+  
+  try {
+    const response = await calendar.events.insert({
+      calendarId,
+      requestBody: bookingClass,
+      conferenceDataVersion: 1, // Required for Google Meet link
+    });
+    
+    return { response: response.data, success: true };
+  } catch (error) {
+    console.error("Error creating calendar event:", error);
+    throw error;
+  }
+}
+```
+
+### Event Configuration
+
+<ParamField path="summary" type="string">
+  Event title displayed in calendar: "Clase de Inglés"
+</ParamField>
+
+<ParamField path="description" type="string">
+  Event description with class type and participant count
+</ParamField>
+
+<ParamField path="start.dateTime" type="ISO 8601">
+  Class start time in ISO format
+</ParamField>
+
+<ParamField path="start.timeZone" type="string">
+  Time zone: `America/Argentina/Buenos_Aires`
+</ParamField>
+
+<ParamField path="conferenceData" type="object">
+  Configuration for Google Meet link generation
+</ParamField>
+
+<ParamField path="conferenceData.createRequest.requestId" type="string">
+  Unique identifier for the Meet link (must be unique)
+</ParamField>
+
+<ParamField path="conferenceData.createRequest.conferenceSolutionKey.type" type="string">
+  Must be `hangoutsMeet` for Google Meet links
+</ParamField>
+
+<ParamField path="conferenceDataVersion" type="number">
+  Must be `1` to enable conference data (Google Meet link)
+</ParamField>
+
+<ParamField path="transparency" type="enum">
+  `opaque` - Shows as busy; `transparent` - Shows as free
+</ParamField>
+
+<Warning>
+  The `conferenceDataVersion: 1` parameter is mandatory for Google Meet link generation. Without it, the event will be created but won't include a Meet link.
+</Warning>
+
+## Google Meet Link Extraction
+
+After event creation, the Google Meet link is extracted and stored:
+
+**Implementation:** `src/services/functions/index.ts:191-205`
+
+```typescript
+const saveCalendarEvent: Omit<CalendarEvent, 'bookedById' | 'participantsIds'> = {
+  googleEventId: googleCalendarEvent.id,
+  classType: classType,
+  accessCode: randomCode,
+  startTime: new Date(googleCalendarEvent.start.dateTime),
+  endTime: new Date(googleCalendarEvent.end.dateTime),
+  maxParticipants: maxParticipants,
+  currentParticipants: 1,
+  classPrice: 111,
+  htmlLink: googleCalendarEvent.conferenceData.entryPoints[0].uri,
+  status: "scheduled",
+  summary: `${googleCalendarEvent.summary}. ${googleCalendarEvent.description}`,
+  learningFocus: text,
+  preferenceId: preferenceId,
+  hostType: 'anfitrion',
+}
+```
+
+The Meet link is found at:
+```typescript
+googleCalendarEvent.conferenceData.entryPoints[0].uri
+```
+
+## Time Zone Handling
+
+All calendar events use Argentina time zone:
+
+```typescript
+timeZone: 'America/Argentina/Buenos_Aires'
+```
+
+Ensure:
+- Frontend sends dates in user's local time
+- Backend converts to Argentina time for storage
+- Calendar events specify time zone explicitly
+
+## Listing Events (Admin)
+
+Admins can list all upcoming events:
+
+**Function:** `src/services/functions/index.ts:77-109`
+
+```typescript
+export async function listEvents() {
+  try {
+    const calendarId = process.env.CALENDAR_ID!;
+    const auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON!),
+      scopes: ['https://www.googleapis.com/auth/calendar']
+    });
+    
+    const calendar = google.calendar({ version: 'v3', auth });
+    
+    const response = await calendar.events.list({
+      calendarId: calendarId,
+      maxResults: 10,
+      singleEvents: true,
+      orderBy: "startTime",
+      timeMin: new Date().toISOString()
+    });
+    
+    const events = response.data.items;
+    console.log("Eventos completos:", JSON.stringify(events, null, 2));
+  } catch (error) {
+    console.error("Error listing events:", error);
+  }
+}
+```
+
+<Note>
+  This function uses service account authentication (currently commented out). For production use, adapt it to use OAuth2 with refresh token.
+</Note>
+
+## Troubleshooting
+
+### "Refresh token not found"
+
+**Solution:**
+1. Admin user must sign out completely
+2. Clear browser cookies
+3. Sign in again to trigger refresh token capture
+4. Check database that `googleRefreshToken` is stored
+
+### "Invalid grant" error
+
+**Causes:**
+- Refresh token has been revoked
+- User changed password
+- Too many refresh tokens issued
+
+**Solution:**
+1. Revoke access in [Google Account Settings](https://myaccount.google.com/permissions)
+2. Sign in again as admin
+3. Grant permissions again
+
+### "Calendar API not enabled"
+
+**Solution:**
+1. Go to Google Cloud Console
+2. APIs & Services > Library
+3. Search "Google Calendar API"
+4. Click "Enable"
+
+### "Meet link not generated"
+
+**Check:**
+- `conferenceDataVersion: 1` is set
+- `conferenceSolutionKey.type: 'hangoutsMeet'` is correct
+- Google Meet is enabled for your Google Workspace
+- Calendar has permissions to create Meet links
+
+### "Events showing in wrong time zone"
+
+**Solution:**
+- Verify `timeZone` is set in event object
+- Check frontend sends ISO 8601 formatted dates
+- Ensure server time zone is configured correctly
+
+## Security Best Practices
+
+<Warning>
+  - Store refresh tokens securely in database
+  - Never expose refresh tokens in client code
+  - Use HTTPS for all OAuth callbacks
+  - Regularly rotate API keys
+  - Monitor API quota usage in Google Cloud Console
+  - Implement error handling for token expiration
+</Warning>
+
+## API Rate Limits
+
+Google Calendar API has usage limits:
+
+- **Queries per day:** 1,000,000 (default)
+- **Queries per user per second:** 5
+
+For high-traffic applications, request quota increase in Google Cloud Console.
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Google Calendar API Documentation" icon="book" href="https://developers.google.com/calendar/api/guides/overview">
+    Official Google Calendar API documentation
+  </Card>
+  <Card title="OAuth 2.0 Documentation" icon="key" href="https://developers.google.com/identity/protocols/oauth2">
+    Google OAuth 2.0 implementation guide
+  </Card>
+  <Card title="Payment Integration" icon="credit-card" href="/admin/payment-integration">
+    Payment flow that triggers calendar event creation
+  </Card>
+  <Card title="Class Management" icon="chalkboard-user" href="/admin/class-management">
+    Managing virtual classes and events
+  </Card>
+</CardGroup>

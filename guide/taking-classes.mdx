@@ -1,0 +1,237 @@
+---
+title: Taking Classes
+description: Join virtual classrooms, use access codes, and participate in live English learning sessions
+---
+
+## Overview
+
+Once you've booked and paid for a class, you can access it through the "Mis Clases Virtuales" (My Virtual Classes) section. This guide covers how to join classes as a host or guest.
+
+## Accessing Your Classes
+
+Navigate to **Mis Clases Virtuales** from your dashboard at `/inicio/mis-clases-virtuales`.
+
+## Understanding Class Roles
+
+There are two types of participants:
+
+### Anfitrión (Host)
+- The person who booked and paid for the class
+- Receives the access code
+- Can invite others to join (for group classes)
+
+### Invitado (Guest/Participant)
+- Invited to join a class by the host
+- Uses an access code to join
+- Counted toward the maximum participant limit
+
+<Note>
+  When you book a class, you're automatically assigned the "anfitrión" (host) role.
+</Note>
+
+## Your Class Dashboard
+
+The Mis Clases Virtuales page displays:
+
+### Class List Headers
+
+- **Día** (Day): The date of the class
+- **Horario** (Time): Start and end times in 24-hour format
+- **Tipo** (Type): Individual or Grupal
+- **Rol** (Role): Anfitrión or Participante
+- **Estado** (Status): Current class status
+- **Tarea IA** (AI Task): Associated activity status
+- **Código** (Code): Access code for joining
+
+### Class Status Values
+
+- **Reservada** (Scheduled): Confirmed and ready to join
+- **Completada** (Completed): Class has finished
+- **Cancelada** (Cancelled): Class was cancelled
+- **Pending**: Awaiting payment confirmation
+
+<Tip>
+  Classes with "pending" status don't appear in your upcoming classes list until payment is approved.
+</Tip>
+
+## Joining a Class as Host
+
+<Steps>
+  <Step title="Wait for Class Time">
+    The join button appears **60 minutes before** the class start time. You cannot join earlier than this.
+  </Step>
+
+  <Step title="Locate Your Class">
+    Find your upcoming class in the list. It will show:
+    - Your role as "Anfitrión"
+    - Status as "Reservada"
+    - The access code
+  </Step>
+
+  <Step title="Click Join">
+    When the join button is active (60 minutes before start), click it to enter the virtual classroom.
+  </Step>
+
+  <Step title="Share Access Code (For Group Classes)">
+    If you booked a group class:
+    - Share the 8-character access code with your participants
+    - Maximum participants is set when booking (2-5 students)
+    - Current participant count is tracked automatically
+  </Step>
+</Steps>
+
+## Joining a Class as Guest
+
+<Steps>
+  <Step title="Obtain Access Code">
+    Get the 8-character access code from the person who booked the class (the host).
+  </Step>
+
+  <Step title="Navigate to Mis Clases Virtuales">
+    Go to `/inicio/mis-clases-virtuales` on the platform.
+  </Step>
+
+  <Step title="Enter Access Code">
+    Look for the section "Unirme a una clase como invitado" (Join a class as guest):
+    
+    - Enter the 8-character code in the input field
+    - Codes are case-insensitive (automatically converted to uppercase)
+    - Click the join button with the external link icon
+  </Step>
+
+  <Step title="Join the Class">
+    If the code is valid and the class has available slots:
+    - You'll be redirected to the virtual classroom
+    - Your role is set as "Participante" (Participant)
+    - The participant count increments automatically
+  </Step>
+</Steps>
+
+### Access Code Errors
+
+If you encounter an error:
+
+- **Invalid Code**: The 8-character code doesn't match any class
+- **Class Full**: Maximum participants already reached
+- **Class Started/Ended**: Cannot join classes in progress or completed
+- **Code Expired**: Class was cancelled or rescheduled
+
+<Note>
+  Error messages appear for 3 seconds below the access code input field.
+</Note>
+
+## Virtual Class Integration
+
+### Google Calendar Integration
+
+When your payment is approved:
+
+1. A Google Calendar event is automatically created
+2. The event includes:
+   - **Event ID**: `googleEventId` stored for modifications
+   - **Summary**: Class type and learning focus
+   - **Description**: Topics to cover and objectives
+   - **Start/End Time**: Your selected time slot
+   - **HTML Link**: Direct link to join the video call
+
+<Tip>
+  The admin account's Google refresh token is used to create calendar events, ensuring reliable scheduling.
+</Tip>
+
+### Access Code Format
+
+- **Length**: 8 characters
+- **Format**: Alphanumeric (uppercase)
+- **Uniqueness**: Each class has a unique code
+- **Validity**: Active from 60 minutes before class until class end
+
+## Class Metadata
+
+### Stored Information
+
+Each virtual class includes:
+
+- **bookedById**: Your user ID
+- **classType**: "individual" or "grupal"
+- **currentParticipants**: Starts at 1, increments with guests
+- **maxParticipants**: Set during booking (1-5)
+- **classPrice**: Total price paid
+- **learningFocus**: Your stated objective/topic
+- **startTime/endTime**: Scheduled time window
+- **htmlLink**: Google Meet/Calendar link
+- **accessCode**: 8-character join code
+
+### Host Type
+
+- **Anfitrión**: Default for class booker
+- **Invitado**: For participants who join via access code
+
+## Activity Status
+
+Each class has an associated AI activity:
+
+- **Pending**: Activity not yet generated or completed
+- **Uploaded**: AI has created the post-class activity
+
+<Note>
+  Activities are automatically generated after class completion to evaluate your learning progress.
+</Note>
+
+## Viewing Past Classes
+
+To see your class history:
+
+1. Navigate to **Historial** (History) in your dashboard
+2. View all completed, scheduled, and cancelled classes
+3. Filter by:
+   - Upcoming classes (status: "scheduled")
+   - All classes (including completed and cancelled)
+
+## Class Limitations
+
+- Cannot join more than 60 minutes before start time
+- Cannot rejoin completed classes
+- Guest limit is enforced at booking time
+- Cancelled classes cannot be accessed
+
+## Troubleshooting
+
+### Join Button Not Appearing
+
+- Verify you're within 60 minutes of class start
+- Check that payment status is "approved"
+- Ensure class status is "scheduled" not "pending"
+- Refresh the page
+
+### Invalid Access Code
+
+- Confirm the code is exactly 8 characters
+- Verify the class hasn't reached maximum participants
+- Check with the host that the class is still scheduled
+- Ensure you're entering the code in the correct field
+
+### Google Calendar Link Issues
+
+- Verify you granted calendar permissions during sign-up
+- Check your Google Calendar for the event
+- Use the HTML link provided in the class details
+- Contact support if the event wasn't created
+
+## Best Practices
+
+<Tip>
+  Join the class 5-10 minutes early to test your audio/video setup and ensure a smooth start.
+</Tip>
+
+- **Test your connection**: Join early to avoid technical issues
+- **Share codes securely**: Only share access codes with intended participants
+- **Confirm attendance**: Let the host know if you can't make it
+- **Prepare materials**: Review the learning focus before class
+
+## Next Steps
+
+After attending a class:
+
+1. Complete the [AI-generated activity](/guide/activities-exams)
+2. Book your [next class](/guide/booking-classes)
+3. Review your [billing history](/guide/billing) for payment records

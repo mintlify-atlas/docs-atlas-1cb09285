@@ -1,0 +1,295 @@
+---
+title: "User Activity & Progress"
+description: "Track user activity, task completion, and class participation through the UserActivity model"
+---
+
+## Overview
+
+The UserActivity model tracks user engagement with classes and tasks. It creates records when users participate in virtual classes and complete learning activities, providing a comprehensive view of their learning progress.
+
+## UserActivity Model
+
+The UserActivity model serves as a junction table that connects users with their tasks and classes, tracking completion status and role assignments.
+
+### Model Structure
+
+<ResponseField name="id" type="string">
+  Unique identifier for the activity record (MongoDB ObjectId)
+</ResponseField>
+
+<ResponseField name="userId" type="string">
+  Reference to the User who performed the activity
+</ResponseField>
+
+<ResponseField name="taskId" type="string | null">
+  Reference to the Task being completed (optional - can be null for class-only activities)
+</ResponseField>
+
+<ResponseField name="classId" type="string">
+  Reference to the VirtualClass associated with this activity
+</ResponseField>
+
+<ResponseField name="rol" type="string">
+  User's role in the class. Possible values:
+  - `anfitrion` - Host/organizer of the class
+  - `participante` - Participant in the class
+</ResponseField>
+
+<ResponseField name="completed" type="boolean">
+  Indicates whether the activity/task has been completed. Defaults to `false`
+</ResponseField>
+
+<ResponseField name="createdAt" type="string">
+  Timestamp when the activity record was created
+</ResponseField>
+
+<ResponseField name="updatedAt" type="string">
+  Timestamp when the activity record was last updated
+</ResponseField>
+
+## Activity Creation
+
+UserActivity records are automatically created in the following scenarios:
+
+### 1. Class Host Registration
+
+When a user books a new class, they are registered as the host (`anfitrion`):
+
+```typescript
+await db.userActivity.create({
+  data: {
+    userId: newClass.bookedById,
+    classId: newClass.id,
+    taskId: null,
+    rol: 'anfitrion',
+    completed: false
+  }
+})
+```
+
+### 2. Class Participant Registration
+
+When a user joins an existing class as a participant:
+
+```typescript
+await db.userActivity.create({
+  data: {
+    userId: userId,
+    classId: classId,
+    taskId: null,
+    rol: 'participante',
+    completed: false
+  }
+})
+```
+
+## Task Completion Flow
+
+### Get User Activity for a Task
+
+Retrieves the activity record for a specific task:
+
+```typescript
+const userActivity = await db.userActivity.findFirst({
+  where: {
+    taskId: taskId,
+    userId: userId
+  },
+  select: {
+    id: true,
+    completed: true
+  }
+})
+```
+
+### Mark Task as Complete
+
+Updates the activity record to mark it as completed:
+
+```typescript
+const updatedTask = await db.userActivity.update({
+  where: {
+    id: userActivity.id
+  },
+  data: {
+    completed: true
+  }
+})
+```
+
+### Complete Task and Increment Class Counter
+
+When a task is marked complete, the user's total class count is automatically incremented:
+
+```typescript
+await db.user.update({
+  where: { id: userId },
+  data: {
+    totalClasses: {
+      increment: 1
+    }
+  }
+})
+```
+
+## Response Examples
+
+### UserActivity Record
+
+```json
+{
+  "id": "507f1f77bcf86cd799439011",
+  "userId": "507f191e810c19729de860ea",
+  "taskId": "507f1f77bcf86cd799439012",
+  "classId": "507f1f77bcf86cd799439013",
+  "rol": "participante",
+  "completed": true,
+  "createdAt": "2025-03-01T10:00:00.000Z",
+  "updatedAt": "2025-03-01T11:30:00.000Z"
+}
+```
+
+### Multiple Activities Query
+
+```json
+[
+  {
+    "id": "507f1f77bcf86cd799439011",
+    "userId": "507f191e810c19729de860ea",
+    "taskId": "507f1f77bcf86cd799439012",
+    "classId": "507f1f77bcf86cd799439013",
+    "rol": "anfitrion",
+    "completed": true,
+    "createdAt": "2025-03-01T10:00:00.000Z",
+    "updatedAt": "2025-03-01T11:30:00.000Z"
+  },
+  {
+    "id": "507f1f77bcf86cd799439014",
+    "userId": "507f191e810c19729de860ea",
+    "taskId": null,
+    "classId": "507f1f77bcf86cd799439015",
+    "rol": "participante",
+    "completed": false,
+    "createdAt": "2025-03-02T09:00:00.000Z",
+    "updatedAt": "2025-03-02T09:00:00.000Z"
+  }
+]
+```
+
+## Related Models
+
+### User Model Fields
+
+<ResponseField name="totalClasses" type="number">
+  Total number of completed classes for the user (automatically incremented when tasks are completed)
+</ResponseField>
+
+<ResponseField name="UserActivity" type="array">
+  Array of all UserActivity records associated with the user
+</ResponseField>
+
+### Task Model
+
+Tasks represent learning activities that users can complete:
+
+<ResponseField name="id" type="string">
+  Unique task identifier
+</ResponseField>
+
+<ResponseField name="title" type="string">
+  Task title
+</ResponseField>
+
+<ResponseField name="content" type="string">
+  Markdown content for the task (AI-generated)
+</ResponseField>
+
+<ResponseField name="solvedContent" type="string">
+  Markdown answer/solution (AI-generated)
+</ResponseField>
+
+<ResponseField name="description" type="string">
+  Short description of the task
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Task type: `exam`, `audio`, `video`, or `reading`
+</ResponseField>
+
+<ResponseField name="difficulty" type="string">
+  Difficulty level: `easy`, `medium`, or `hard`
+</ResponseField>
+
+### VirtualClass Model
+
+Virtual classes are linked to user activities:
+
+<ResponseField name="bookedById" type="string">
+  User ID of the class organizer (host)
+</ResponseField>
+
+<ResponseField name="participantsIds" type="array">
+  Array of user IDs for all participants in the class
+</ResponseField>
+
+<ResponseField name="currentParticipants" type="number">
+  Current number of participants
+</ResponseField>
+
+<ResponseField name="maxParticipants" type="number">
+  Maximum allowed participants
+</ResponseField>
+
+<ResponseField name="classType" type="string">
+  Type of class: `individual` or `grupal` (group)
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Class status: `scheduled`, `pending`, `completed`, or `cancelled`
+</ResponseField>
+
+## Common Queries
+
+### Get All Activities for a User
+
+```typescript
+const activities = await db.userActivity.findMany({
+  where: {
+    userId: userId
+  },
+  include: {
+    task: true,
+    class: true
+  }
+})
+```
+
+### Get Completed Activities
+
+```typescript
+const completedActivities = await db.userActivity.findMany({
+  where: {
+    userId: userId,
+    completed: true
+  }
+})
+```
+
+### Get Activities by Role
+
+```typescript
+const hostedClasses = await db.userActivity.findMany({
+  where: {
+    userId: userId,
+    rol: 'anfitrion'
+  }
+})
+```
+
+## Best Practices
+
+1. **Activity Creation**: Always create a UserActivity record when a user joins or hosts a class
+2. **Completion Tracking**: Mark activities as completed only after the user has finished the associated task
+3. **Role Assignment**: Ensure the correct role (`anfitrion` or `participante`) is assigned based on the user's participation type
+4. **Total Classes**: The `totalClasses` counter on the User model is incremented automatically when tasks are completed - do not modify it manually
+5. **Null Tasks**: Activities can have `taskId` set to `null` for class participation without specific task assignments

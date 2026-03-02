@@ -1,0 +1,284 @@
+---
+title: Billing & Payments
+description: Manage payment history, view invoices, and understand billing for virtual English classes
+---
+
+## Overview
+
+All payments for Speak English Now classes are processed through **Mercado Pago**, Argentina's leading payment platform. This guide covers how to pay for classes, view your payment history, and manage billing information.
+
+## Accessing Billing
+
+Navigate to **Facturación** (Billing) from your dashboard at `/inicio/facturacion`.
+
+<Note>
+  Your billing page displays a complete history of all paid classes with detailed invoice information.
+</Note>
+
+## Payment Process
+
+### Completing a Payment
+
+<Steps>
+  <Step title="Book a Class">
+    After selecting your class and time slot in [Reservas](/guide/booking-classes), you'll be taken to the checkout preview page.
+  </Step>
+
+  <Step title="Review Purchase Details">
+    The `/inicio/pre-compra` page shows:
+    
+    - **Tipo de clase**: Individual or Grupal
+    - **Cantidad de estudiantes**: Number of participants
+    - **Fecha**: Class date (DD/MM/YYYY format)
+    - **Hora**: Start and end times (24-hour format)
+    - **Precio**: Total price in Argentine pesos
+    - **Tema a tratar**: Your stated learning objective
+  </Step>
+
+  <Step title="Click Pay with Mercado Pago">
+    Click the blue "Pagar con Mercado Pago" button to proceed to payment.
+    
+    <Tip>
+      Mercado Pago accepts credit/debit cards, bank transfers, and other local payment methods.
+    </Tip>
+  </Step>
+
+  <Step title="Complete Mercado Pago Checkout">
+    You'll be redirected to Mercado Pago's secure checkout:
+    
+    - Enter payment details
+    - Confirm the transaction
+    - Wait for payment processing
+  </Step>
+
+  <Step title="Return to Platform">
+    After payment, Mercado Pago redirects you back to:
+    
+    `/checkout/callback/[status]?payment_id=...&status=...&external_reference=...`
+    
+    Possible statuses:
+    - **approved**: Payment successful
+    - **pending**: Payment processing
+    - **failure**: Payment failed
+  </Step>
+
+  <Step title="Confirmation Page">
+    For successful payments (`status=approved`):
+    
+    - Confetti animation plays
+    - Success message is displayed
+    - Payment ID and reference number are shown
+    - Auto-redirect to dashboard after countdown (seconds displayed)
+  </Step>
+</Steps>
+
+### Payment Data Sent
+
+The booking API (`/api/booking`) receives:
+
+```json
+{
+  "start": "2024-04-15T17:00:00",
+  "end": "2024-04-15T18:00:00",
+  "isGroupClass": false,
+  "studentsCount": 1,
+  "text": "Practice job interviews",
+  "price": 5000,
+  "preferenceId": "162275027-..."
+}
+```
+
+- **start/end**: ISO 8601 datetime strings
+- **isGroupClass**: Boolean (true for group, false for individual)
+- **studentsCount**: Integer (1-5)
+- **text**: Learning focus (max 100 characters)
+- **price**: Total amount in pesos
+- **preferenceId**: Mercado Pago preference ID (unique)
+
+## Payment Status
+
+Payments can have three statuses:
+
+### Approved
+- **Status**: `approved`
+- **Effect**: Class is created and scheduled
+- **Google Calendar**: Event is automatically generated
+- **Access Code**: Becomes available
+- **Database**: `PaymentMercadoPago` record with `status: approved`
+
+### Pending
+- **Status**: `pending`
+- **Effect**: Class remains in pending state
+- **Display**: Not shown in "Mis Clases Virtuales"
+- **Action**: Wait for payment confirmation
+
+### Rejected/Failed
+- **Status**: `rejected` or `failure`
+- **Effect**: Class is not created
+- **Display**: Error message on callback page
+- **Action**: Retry payment or contact support
+
+<Note>
+  Only `approved` payments result in scheduled classes. Pending and failed payments do not create active class bookings.
+</Note>
+
+## Viewing Payment History
+
+Your billing page displays all completed payments:
+
+### Invoice Card Information
+
+Each invoice card shows:
+
+- **Invoice Number**: Sequential number (Factura #1, #2, etc.)
+- **Payment Method**: MercadoPago badge
+- **Payment Date**: Formatted in Argentina timezone (es-AR)
+- **Total Amount**: Price in ARS (Argentine pesos)
+- **Participants**: Number of students in the class
+- **Order ID**: Truncated `preferenceId` for reference
+
+### Card Design
+
+#### Date Section (Blue)
+- Calendar icon
+- "Fecha de pago" label
+- Full timestamp
+
+#### Amount Section (Green)
+- Dollar sign icon
+- "Monto total" label
+- Bold price display (e.g., "$ 5000.00")
+
+#### Participants Section (Purple)
+- Users icon
+- "Participantes" label
+- Student count
+
+#### Order ID Section
+- Hash icon
+- Monospace font
+- First 12 characters of `preferenceId`
+- Select-all enabled for copying
+
+<Tip>
+  Click the Order ID to select and copy it for reference when contacting support.
+</Tip>
+
+## Payment Records in Database
+
+The `PaymentMercadoPago` model stores:
+
+- **id**: Unique MongoDB ObjectId
+- **userId**: Your account ID
+- **preferenceId**: Mercado Pago preference (unique)
+- **price**: Amount paid (integer, in centavos)
+- **type**: "individual" or "grupal"
+- **maxParticipants**: Number of students (1-5)
+- **status**: "approved", "pending", or "rejected"
+- **createdAt**: Payment timestamp
+- **updatedAt**: Last modification
+
+### Relationship to Classes
+
+Payments are linked to virtual classes via `preferenceId`:
+
+- Virtual class `preferenceId` matches payment record
+- Approved payment triggers class creation
+- Class `status` updates to "scheduled"
+- Google Calendar event is generated
+
+## No Payment History
+
+If you haven't made any payments:
+
+```
+No se encontró ningún pago cargado en tu historial.
+```
+
+(No payments found in your history.)
+
+## Refunds and Cancellations
+
+To request a refund or cancel a class:
+
+1. Contact support **before** the class start time
+2. Provide your payment ID or preference ID
+3. Refund processing depends on Mercado Pago policies
+
+<Note>
+  Refund availability may vary based on how close the request is to the class start time. Contact support early for best results.
+</Note>
+
+## Payment Security
+
+Security measures:
+
+- **SSL/TLS**: All transactions encrypted
+- **Mercado Pago**: PCI DSS compliant processor
+- **No card storage**: Payment details never stored on our servers
+- **Webhook verification**: Backend validates payment status
+
+## Troubleshooting
+
+### Payment Not Appearing in History
+
+- Check if payment status is "approved" (not pending/rejected)
+- Verify the payment was for this account email
+- Allow up to 10 minutes for processing
+- Refresh the billing page
+- Contact support with payment ID
+
+### Class Not Scheduled After Payment
+
+1. Verify payment status is "approved"
+2. Check the `/inicio/mis-clases-virtuales` page
+3. Ensure class isn't filtered out (status not "pending")
+4. Look for Google Calendar event
+5. Contact support if issue persists
+
+### Duplicate Charges
+
+- Check if you accidentally clicked payment button multiple times
+- Review all billing records for duplicate `preferenceId`
+- Contact Mercado Pago support immediately
+- Provide both payment IDs to platform support
+
+### Payment Callback Error
+
+If redirected to callback page with errors:
+
+- Note the status parameter in URL
+- Screenshot any error messages
+- Return to booking page and retry
+- Contact support if problem continues
+
+## Payment Methods Accepted
+
+Via Mercado Pago, you can pay with:
+
+- **Credit Cards**: Visa, Mastercard, American Express
+- **Debit Cards**: Argentine bank cards
+- **Bank Transfers**: CBU/CVU transfers
+- **Mercado Pago Balance**: If you have an account
+- **Cash**: Via Pago Fácil, Rapipago (payment codes)
+
+<Tip>
+  Using Mercado Pago balance or saved payment methods provides the fastest checkout experience.
+</Tip>
+
+## Best Practices
+
+- **Save confirmation**: Screenshot payment success page
+- **Check email**: Mercado Pago sends receipts
+- **Note payment ID**: Save for future reference
+- **Verify class**: Check Mis Clases Virtuales after payment
+- **Keep records**: Download or print invoices from billing page
+
+## Next Steps
+
+After successful payment:
+
+1. View your class in [Mis Clases Virtuales](/guide/taking-classes)
+2. Note your access code for joining
+3. Check Google Calendar for the event
+4. Prepare for your class by reviewing the learning focus

@@ -1,0 +1,174 @@
+---
+title: "Book a Class"
+description: "Create a new class booking in the system"
+---
+
+## POST /api/booking
+
+Creates a new virtual class booking for an authenticated user. The booking is initially created with a `pending` status and is later updated to `scheduled` when the Google Calendar event is confirmed via webhook.
+
+### Authentication
+
+This endpoint requires authentication. The user must be logged in with a valid session.
+
+### Request Body
+
+<ParamField body="start" type="string" required>
+  ISO 8601 datetime string for the class start time
+  
+  Example: `"2026-03-15T10:00:00Z"`
+</ParamField>
+
+<ParamField body="end" type="string" required>
+  ISO 8601 datetime string for the class end time
+  
+  Example: `"2026-03-15T11:00:00Z"`
+</ParamField>
+
+<ParamField body="isGroupClass" type="boolean" required>
+  Whether this is a group class or individual class
+  
+  - `true`: Group class (grupal)
+  - `false`: Individual class (individual)
+</ParamField>
+
+<ParamField body="studentsCount" type="number" required>
+  Maximum number of students for the class
+  
+  For individual classes, this is typically 1. For group classes, specify the maximum capacity.
+</ParamField>
+
+<ParamField body="text" type="string" optional>
+  Learning focus or objectives for the class
+  
+  Example: `"Focus on conversational English and pronunciation"`
+</ParamField>
+
+<ParamField body="price" type="number" required>
+  Price for the class in cents or smallest currency unit
+  
+  Example: `5000` (represents $50.00)
+</ParamField>
+
+<ParamField body="preferenceId" type="string" required>
+  Mercado Pago payment preference ID
+  
+  This ID links the booking to a payment record and must be unique.
+</ParamField>
+
+### Response
+
+<ResponseField name="success" type="boolean">
+  Indicates whether the booking was created successfully
+</ResponseField>
+
+<ResponseField name="status" type="number">
+  HTTP status code
+  
+  - `200`: Booking created successfully
+  - `400`: Missing or invalid request data
+  - `401`: User not authenticated
+  - `500`: Server error during booking creation
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/api/booking \
+  -H "Content-Type: application/json" \
+  -H "Cookie: authjs.session-token=YOUR_SESSION_TOKEN" \
+  -d '{
+    "start": "2026-03-15T10:00:00Z",
+    "end": "2026-03-15T11:00:00Z",
+    "isGroupClass": false,
+    "studentsCount": 1,
+    "text": "Focus on business English vocabulary",
+    "price": 5000,
+    "preferenceId": "mp-pref-123456789"
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "success": true,
+  "status": 200
+}
+```
+
+### Error Responses
+
+<Expandable title="401 Unauthorized">
+  ```json
+  {
+    "error": "Unauthorized",
+    "status": 401
+  }
+  ```
+  
+  Returned when the user is not authenticated or session is invalid.
+</Expandable>
+
+<Expandable title="400 Bad Request - Missing Booking Data">
+  ```json
+  {
+    "error": "Missing booking data"
+  }
+  ```
+  
+  Returned when the request body is empty or null.
+</Expandable>
+
+<Expandable title="400 Bad Request - Missing Dates">
+  ```json
+  {
+    "error": "Missing start or end date"
+  }
+  ```
+  
+  Returned when either `start` or `end` parameters are missing.
+</Expandable>
+
+<Expandable title="400 Bad Request - Missing Preference ID">
+  ```json
+  {
+    "error": "Missing preferenceId"
+  }
+  ```
+  
+  Returned when the `preferenceId` parameter is missing. This ID is required to link the booking with a payment.
+</Expandable>
+
+<Expandable title="500 Internal Server Error">
+  ```json
+  {
+    "error": "Failed to create booking",
+    "status": 500
+  }
+  ```
+  
+  Returned when the database operation fails or an unexpected error occurs.
+</Expandable>
+
+### Database Record
+
+When a booking is created, a new `VirtualClass` record is inserted with the following fields:
+
+- `bookedById`: Authenticated user's ID
+- `startTime`: Converted to Date object from `start`
+- `endTime`: Converted to Date object from `end`
+- `classType`: "grupal" or "individual" based on `isGroupClass`
+- `classPrice`: Numeric price value
+- `maxParticipants`: From `studentsCount`
+- `preferenceId`: Payment preference ID
+- `learningFocus`: From `text` parameter
+- `participantsIds`: Array initialized with the creator's user ID
+- `status`: Initially set to `pending`
+
+### Notes
+
+- The booking is created with a `pending` status initially
+- After successful payment confirmation and Google Calendar event creation, the booking status is updated to `scheduled` via a webhook
+- The user who creates the booking is automatically added as the first participant
+- The `preferenceId` must match a valid Mercado Pago payment preference

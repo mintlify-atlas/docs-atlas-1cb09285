@@ -1,0 +1,376 @@
+---
+title: Platform Setup & Configuration
+description: Initial setup and configuration guide for Speak English Now administrators
+---
+
+This guide covers the essential setup steps required to configure and deploy the Speak English Now platform.
+
+## Prerequisites
+
+Before setting up the platform, ensure you have:
+
+- Node.js 18+ installed
+- MongoDB database (local or cloud)
+- Google Cloud Platform account
+- Mercado Pago account (for payments)
+- GitHub/Google OAuth applications configured
+
+## Environment Variables
+
+The platform requires multiple environment variables for proper operation.
+
+### Authentication Variables
+
+<ParamField path="AUTH_SECRET" type="string" required>
+  NextAuth.js secret key for session encryption. Generate using:
+  ```bash
+  openssl rand -base64 32
+  ```
+</ParamField>
+
+<ParamField path="AUTH_GOOGLE_ID" type="string" required>
+  Google OAuth Client ID from Google Cloud Console
+</ParamField>
+
+<ParamField path="AUTH_GOOGLE_SECRET" type="string" required>
+  Google OAuth Client Secret from Google Cloud Console
+</ParamField>
+
+<ParamField path="ADMIN_EMAIL" type="string" required>
+  Email address of the platform administrator. Only this email will have admin access.
+</ParamField>
+
+<ParamField path="GOOGLE_REDIRECT_URI" type="string" required>
+  OAuth redirect URI (e.g., `http://localhost:3000/api/auth/callback/google`)
+</ParamField>
+
+**Implementation:** `src/auth.ts:15-26`
+
+### Database Configuration
+
+<ParamField path="DATABASE_URL" type="string" required>
+  MongoDB connection string. Format:
+  ```
+  mongodb+srv://username:password@cluster.mongodb.net/database?retryWrites=true&w=majority
+  ```
+</ParamField>
+
+**Schema:** `prisma/schema.prisma:11-14`
+
+### Google Calendar Integration
+
+<ParamField path="CALENDAR_ID" type="string" required>
+  Google Calendar ID where classes will be scheduled (usually your email address)
+</ParamField>
+
+<ParamField path="CALENDAR_API_KEY" type="string" required>
+  Google Calendar API key from Google Cloud Console
+</ParamField>
+
+<ParamField path="GOOGLE_SERVICE_ACCOUNT_JSON" type="string (JSON)">
+  Service account credentials as JSON string (optional, for service account authentication)
+</ParamField>
+
+**Implementation:** `src/app/api/calendar/route.ts:10-11`
+
+### Payment Integration (Mercado Pago)
+
+<ParamField path="MERCADO_PAGO_ACCESS_TOKEN" type="string" required>
+  Mercado Pago private access token from your account dashboard
+</ParamField>
+
+<ParamField path="NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY" type="string" required>
+  Mercado Pago public key (client-side accessible)
+</ParamField>
+
+**Implementation:** `src/app/api/mercado-pago/create-preference/route.ts:24`
+
+### Application URLs
+
+<ParamField path="BASE_URL" type="string" required>
+  Full base URL of your application including protocol:
+  - Development: `http://localhost:3000/`
+  - Production: `https://yourdomain.com/`
+</ParamField>
+
+<Warning>
+  The `BASE_URL` must end with a trailing slash (`/`) for proper URL construction in webhook and calendar routes.
+</Warning>
+
+### AI Integration (Optional)
+
+<ParamField path="OPENAI_API_KEY" type="string">
+  OpenAI API key for AI-powered activity generation (if using)
+</ParamField>
+
+**Reference:** `src/env.ts:6`
+
+### Example .env File
+
+```env
+# Authentication
+AUTH_SECRET="your-generated-secret-key-here"
+AUTH_GOOGLE_ID="123456789-abc.apps.googleusercontent.com"
+AUTH_GOOGLE_SECRET="GOCSPX-your-secret-here"
+ADMIN_EMAIL="admin@yourdomain.com"
+GOOGLE_REDIRECT_URI="http://localhost:3000/api/auth/callback/google"
+
+# Database
+DATABASE_URL="mongodb+srv://user:pass@cluster.mongodb.net/speakenglishnow"
+
+# Google Calendar
+CALENDAR_ID="admin@yourdomain.com"
+CALENDAR_API_KEY="AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+
+# Mercado Pago
+MERCADO_PAGO_ACCESS_TOKEN="APP_USR-123456789-abcdef-xyz"
+NEXT_PUBLIC_MERCADO_PAGO_PUBLIC_KEY="APP_USR-123456789-abcdef-xyz-public"
+
+# Application
+BASE_URL="http://localhost:3000/"
+
+# Optional: OpenAI
+OPENAI_API_KEY="sk-proj-..."
+```
+
+## Database Setup
+
+### 1. Initialize Prisma
+
+Generate Prisma client:
+
+```bash
+npx prisma generate
+```
+
+### 2. Push Schema to Database
+
+For MongoDB, push the schema:
+
+```bash
+npx prisma db push
+```
+
+<Note>
+  MongoDB with Prisma doesn't use traditional migrations. Use `db push` to synchronize your schema.
+</Note>
+
+### 3. Seed Initial Data (Optional)
+
+Create a seed script if needed:
+
+```typescript
+// prisma/seed.ts
+import { PrismaClient } from '@prisma/client'
+
+const prisma = new PrismaClient()
+
+async function main() {
+  // Add seed data here
+}
+
+main()
+  .catch((e) => {
+    console.error(e)
+    process.exit(1)
+  })
+  .finally(async () => {
+    await prisma.$disconnect()
+  })
+```
+
+## OAuth Configuration
+
+### Google Cloud Console Setup
+
+1. **Create a Project**
+   - Go to [Google Cloud Console](https://console.cloud.google.com)
+   - Create a new project or select existing
+
+2. **Enable APIs**
+   - Enable Google Calendar API
+   - Enable Google+ API (for OAuth)
+
+3. **Create OAuth Credentials**
+   - Navigate to "APIs & Services" > "Credentials"
+   - Create OAuth 2.0 Client ID
+   - Application type: Web application
+   - Authorized redirect URIs:
+     ```
+     http://localhost:3000/api/auth/callback/google
+     https://yourdomain.com/api/auth/callback/google
+     ```
+
+4. **Configure Consent Screen**
+   - Add required scopes:
+     - `openid`
+     - `email`
+     - `profile`
+     - `https://www.googleapis.com/auth/calendar.events`
+
+5. **Copy Credentials**
+   - Copy Client ID to `AUTH_GOOGLE_ID`
+   - Copy Client Secret to `AUTH_GOOGLE_SECRET`
+
+<Warning>
+  The admin user must grant offline access to Google Calendar. This happens automatically on first sign-in when the refresh token is captured.
+</Warning>
+
+### GitHub OAuth Setup (Optional)
+
+1. Go to GitHub Settings > Developer settings > OAuth Apps
+2. Create new OAuth App
+3. Set Authorization callback URL:
+   ```
+   http://localhost:3000/api/auth/callback/github
+   ```
+4. Copy Client ID and Client Secret to environment variables
+
+## Payment Integration Setup
+
+See the dedicated [Payment Integration](/admin/payment-integration) guide for detailed Mercado Pago configuration.
+
+## Calendar Integration Setup
+
+See the dedicated [Calendar Setup](/admin/calendar-setup) guide for detailed Google Calendar configuration.
+
+## Application Deployment
+
+### Development
+
+```bash
+npm install
+npm run dev
+```
+
+Access at `http://localhost:3000`
+
+### Production Build
+
+```bash
+npm run build
+npm start
+```
+
+### Deployment Platforms
+
+The application can be deployed to:
+
+- **Vercel** (recommended for Next.js)
+  - Automatic deployments from Git
+  - Environment variables in dashboard
+  - Serverless functions support
+
+- **Railway**
+  - Full Node.js environment
+  - MongoDB hosting available
+  - Environment variable management
+
+- **DigitalOcean App Platform**
+  - Container-based deployment
+  - Database hosting
+  - SSL certificates included
+
+### Environment Variables in Production
+
+<Warning>
+  Never commit `.env` files to version control. Use platform-specific environment variable management:
+  - Vercel: Project Settings > Environment Variables
+  - Railway: Project > Variables tab
+  - DigitalOcean: App Settings > Environment Variables
+</Warning>
+
+## Post-Deployment Checklist
+
+After deployment, verify:
+
+- [ ] OAuth providers work (test login)
+- [ ] Admin email grants proper access
+- [ ] Database connections are stable
+- [ ] Google Calendar events create successfully
+- [ ] Mercado Pago webhooks receive notifications
+- [ ] SSL certificate is active (production)
+- [ ] Error logging is configured
+- [ ] Backup strategy is in place
+
+## Security Best Practices
+
+### Session Security
+
+- Sessions expire after 30 days
+- JWT tokens are signed with `AUTH_SECRET`
+- HTTPS required in production
+
+### API Security
+
+- All admin routes verify email match
+- Server actions validate user sessions
+- Database queries use parameterized inputs
+
+### Data Protection
+
+- User passwords managed by OAuth providers
+- Sensitive tokens stored server-side only
+- Environment variables never exposed to client
+
+## Monitoring and Logging
+
+### Recommended Tools
+
+- **Error Tracking:** Sentry
+- **Performance:** Vercel Analytics
+- **Database:** MongoDB Atlas monitoring
+- **Uptime:** UptimeRobot
+
+### Log Locations
+
+Current logging is console-based. Consider implementing:
+
+```typescript
+// lib/logger.ts
+import winston from 'winston'
+
+export const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.json(),
+  transports: [
+    new winston.transports.File({ filename: 'error.log', level: 'error' }),
+    new winston.transports.File({ filename: 'combined.log' }),
+  ],
+})
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**"No admin access"**
+- Verify `ADMIN_EMAIL` matches your OAuth email exactly
+- Check environment variables are loaded
+- Clear browser cookies and re-login
+
+**"Calendar events not creating"**
+- Verify admin user has granted calendar permissions
+- Check `googleRefreshToken` is stored in database
+- Verify Calendar API is enabled in Google Cloud
+
+**"Payment webhook not receiving"**
+- Ensure `BASE_URL` ends with `/`
+- Verify Mercado Pago webhook URL is correct
+- Check webhook URL is publicly accessible
+
+**"Database connection failed"**
+- Verify `DATABASE_URL` format
+- Check MongoDB Atlas IP whitelist
+- Ensure database user has proper permissions
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Payment Integration" icon="credit-card" href="/admin/payment-integration">
+    Configure Mercado Pago payment processing
+  </Card>
+  <Card title="Calendar Setup" icon="calendar" href="/admin/calendar-setup">
+    Set up Google Calendar integration
+  </Card>
+</CardGroup>

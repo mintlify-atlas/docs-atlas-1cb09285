@@ -1,80 +1,422 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quickstart Guide
+description: Get from account creation to your first English class in just a few minutes
 ---
 
-## Get started in three steps
+## Book Your First Class in 5 Steps
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through creating your account, setting up your profile, and booking your first English lesson on the Speak English Now platform.
 
-### Step 1: Set up your local environment
+<Steps>
+  <Step title="Sign In with OAuth">
+    The platform uses NextAuth for secure authentication with Google and GitHub providers.
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
+    ### Google Sign-In (Recommended)
     
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    ```tsx
+    import { signIn } from "next-auth/react"
 
-### Step 2: Deploy your changes
+    // The Google OAuth button
+    <GoogleButton
+      onClick={() => signIn('google', { callbackUrl: '/inicio' })}
+      label="Inicia Sesion"
+    />
+    ```
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+    When you click the sign-in button:
+    1. You'll be redirected to Google's OAuth consent screen
+    2. Grant calendar permissions for class scheduling
+    3. Automatically redirected to `/inicio` (your dashboard)
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+    <Note>
+      The platform requests Google Calendar permissions (`calendar.events` scope) to automatically create class events and generate Meet links.
+    </Note>
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+    ### What Happens Behind the Scenes
 
-### Step 3: Go live
+    ```typescript
+    // From auth.ts
+    export const { handlers, signIn, signOut, auth } = NextAuth({
+      providers: [Google({
+        authorization: {
+          params: {
+            scope: "openid email profile https://www.googleapis.com/auth/calendar.events",
+            access_type: "offline",
+          }
+        }
+      })],
+      callbacks: {
+        async signIn({ user, account, profile }) {
+          const { name, email, image } = user
+          const userFound = await loggedAsAdmin(email)
+          
+          if (!userFound) {
+            await createUser(name, email, image)
+          }
+          return true
+        }
+      }
+    })
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    Your user record is created in the database with default values:
 
-## Next steps
+    ```typescript
+    // From server-actions/actions.ts
+    const newUser = await db.user.create({
+      data: {
+        name,
+        email,
+        image,
+        nivel: "inicial",           // Default English level
+        totalClasses: 0,           // Classes completed
+        newsletter: "no",          // Newsletter preference
+        status: false              // Account status
+      }
+    })
+    ```
+  </Step>
 
-Now that you have your docs running, explore these key features:
+  <Step title="Complete Your Profile">
+    Navigate to **Configuración** (Settings) to set up your learning profile.
 
-<CardGroup cols={2}>
+    ### Required Information
 
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
+    Update your profile with:
+    - **Nivel de Inglés**: Choose from `inicial`, `básico`, `intermedio`, or `avanzado`
+    - **Localidad**: Your city/location
+    - **Teléfono**: Contact number for notifications
+    - **Newsletter**: Opt in/out of learning tips and updates
+
+    ```typescript
+    // User profile update from services/functions/index.ts
+    await db.user.update({
+      where: { id },
+      data: {
+        localidad: "Buenos Aires",
+        nivel: "intermedio",
+        telefono: 1130577799,
+        newsletter: "si"
+      }
+    })
+    ```
+
+    <Note>
+      Your English level determines which learning track you'll be assigned:
+      - **Inicial**: Grammar-focused classes
+      - **Intermedio**: Listening and comprehension
+      - **Avanzado**: Conversational fluency
+    </Note>
+  </Step>
+
+  <Step title="Browse Available Classes">
+    Go to **Calendario** or **Reservas** to view available time slots.
+
+    ### Understanding the Calendar
+
+    The platform uses FullCalendar to display real-time availability:
+
+    ```tsx
+    // From inicio/reservas/page.tsx
+    <FullCalendar
+      allDaySlot={false}
+      initialView="timeGridWeek"
+      slotMinTime="17:00:00"
+      slotMaxTime="21:00:00"
+      slotDuration="01:00:00"
+      businessHours={{
+        startTime: '17:00',
+        endTime: '21:00',
+        daysOfWeek: [1, 2, 3, 4, 5, 6]
+      }}
+      dateClick={(info) => {
+        scheduleClass({ info, setOpen, setSelectedDate })
+        const start = new Date(info.date)
+        const end = new Date(start.getTime() + 60 * 60 * 1000)
+        setScheduledTime({ start, end })
+      }}
+    />
+    ```
+
+    ### Class Status Indicators
+
+    - **Yellow (Reservada)**: Scheduled and confirmed
+    - **Gray (Completada)**: Class finished
+    - **Disabled**: Past dates or unavailable slots
+
+    <Warning>
+      You can only book classes from today onwards. Past dates are automatically disabled in the calendar interface.
+    </Warning>
+  </Step>
+
+  <Step title="Configure Your Class">
+    After selecting a time slot, configure your class details in the **Detalles de la reserva** section.
+
+    ### Choose Class Type
+
+    **Individual Class** (1 student)
+    - Personalized attention
+    - Custom learning objectives
+    - Base price: Check `pricing.json`
+
+    **Group Class** (2-5 students)
+    - Collaborative learning
+    - Reduced per-student pricing
+    - Select number of participants
+
+    ```tsx
+    // Dynamic pricing calculation
+    const handleClassTypeChange = (e) => {
+      const isGroup = e.target.value === "grupal"
+      
+      if (e.target.value === "individual") {
+        setStudentsCount(1)
+        setPrice(pricing.basePrice)
+      }
+      
+      setClassMetadata({
+        type: isGroup ? "grupal" : "individual",
+        studentsCount: isGroup ? studentsCount : 1,
+        price: isGroup ? pricing.perStudent[studentsCount] : pricing.basePrice
+      })
+    }
+    ```
+
+    ### Set Learning Focus
+
+    Describe your learning objective in the **Objetivo de la clase** textarea (max 100 characters):
+
+    ```tsx
+    <Textarea
+      maxLength={100}
+      placeholder='Describe el tema que necesitas tratar durante la clase (opcional)...'
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+    />
+    ```
+
+    Examples:
+    - "Practice business English presentations"
+    - "Improve pronunciation of difficult words"
+    - "Learn travel vocabulary and phrases"
+
+    <Note>
+      While the learning focus is optional, providing specific goals helps your instructor prepare relevant materials.
+    </Note>
+  </Step>
+
+  <Step title="Complete Payment & Confirm">
+    Click **Agendar clase** to proceed to payment.
+
+    ### Payment Flow
+
+    1. **Create Mercado Pago Preference**
+
+    ```typescript
+    // Create payment preference
+    const preferenceData = {
+      items: [{
+        title: `Clase ${classType}`,
+        quantity: 1,
+        unit_price: price
+      }],
+      back_urls: {
+        success: `${baseUrl}/checkout/callback/success`,
+        failure: `${baseUrl}/checkout/callback/failure`,
+        pending: `${baseUrl}/checkout/callback/pending`
+      }
+    }
+    ```
+
+    2. **Create Pending Virtual Class**
+
+    Once payment is initiated, a class record is created with `status: "pending"`:
+
+    ```typescript
+    // From api/booking/route.ts
+    const bookingData = {
+      start: scheduledTime.start,
+      end: scheduledTime.end,
+      classType: isGroupClass ? "grupal" : "individual",
+      classPrice: Number(price),
+      maxParticipants: isGroupClass ? studentsCount : 1,
+      preferenceId: mpPreferenceId,
+      learningFocus: text
+    }
+
+    await createVirtualClass(bookingData, userId)
+    ```
+
+    3. **Payment Confirmation**
+
+    After successful payment, the webhook updates the class:
+
+    ```typescript
+    // Webhook updates class status to "scheduled"
+    await db.virtualClass.update({
+      where: { preferenceId },
+      data: {
+        status: "scheduled",
+        googleEventId: calendarEvent.id,
+        htmlLink: calendarEvent.hangoutLink,
+        accessCode: generateAccessCode()
+      }
+    })
+    ```
+
+    ### What You'll Receive
+
+    <CardGroup cols={2}>
+      <Card title="Email Confirmation" icon="envelope">
+        Payment receipt and class details from Mercado Pago
+      </Card>
+      <Card title="Calendar Event" icon="calendar-check">
+        Automatic Google Calendar invite with Meet link
+      </Card>
+      <Card title="Access Code" icon="key">
+        Unique code to join class (available 60 min before start)
+      </Card>
+      <Card title="Activity Assignment" icon="clipboard-check">
+        AI-generated post-class exercises in "Mis Actividades"
+      </Card>
+    </CardGroup>
+
+    <Warning>
+      Your class is confirmed only when payment status changes to `approved`. Pending or rejected payments will not create calendar events.
+    </Warning>
+  </Step>
+</Steps>
+
+## Accessing Your Class
+
+### 60 Minutes Before Start Time
+
+Navigate to **Mis Clases Virtuales** to view your upcoming classes and access codes.
+
+```tsx
+// Access code component from mis-clases-virtuales/AccessCode.tsx
+<Card>
+  <h3>Código de Acceso</h3>
+  <p className="text-2xl font-mono">{accessCode}</p>
+  <Button onClick={() => window.open(htmlLink)}>
+    Unirse a la Clase
+  </Button>
 </Card>
+```
 
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
+The **Unirse a la Clase** button appears when:
+- Current time is within 60 minutes of class start
+- Class status is `scheduled`
+- You have a valid `accessCode`
 
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
+### During the Class
 
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
+1. Click the join button to open Google Meet
+2. Enter your access code if prompted
+3. Participate in the 90-minute session
+4. Take notes on topics covered
 
-</CardGroup>
+### After the Class
+
+Check **Mis Actividades** for AI-generated exercises based on your lesson:
+
+```typescript
+// AI tutor creates activities
+const userActivity = await db.userActivity.create({
+  data: {
+    userId: user.id,
+    classId: class.id,
+    taskId: aiGeneratedTask.id,
+    rol: "participante",
+    completed: false
+  }
+})
+```
+
+Activity types:
+- **exam**: Multiple choice or written tests
+- **audio**: Listening comprehension
+- **video**: Video analysis tasks
+- **reading**: Text comprehension
 
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  Activities must be completed before your next class to track progress effectively. The AI tutor adjusts difficulty based on your performance.
 </Note>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="My access code isn't showing">
+    Access codes appear 60 minutes before class start. If your class is within this window and you don't see it, check that:
+    - Payment status is `approved` (check **Facturación**)
+    - Class status is `scheduled` (not `pending` or `cancelled`)
+    - You're logged in with the correct account
+  </Accordion>
+
+  <Accordion title="Payment was successful but no calendar event">
+    The webhook might have failed. Contact support via **Centro de Ayuda** with your:
+    - User ID (from **Configuración**)
+    - Preference ID (from payment confirmation)
+    - Payment date and time
+  </Accordion>
+
+  <Accordion title="I need to cancel or reschedule">
+    Currently, cancellations and rescheduling must be done through support. Submit a ticket at **Centro de Ayuda** with category "CUENTA" or contact via WhatsApp: +11-3057-7799
+  </Accordion>
+
+  <Accordion title="Class link not working">
+    Ensure you:
+    - Have Google Meet access enabled
+    - Are using the correct Google account
+    - Joined within the class time window
+    
+    If issues persist, use the support ticket system with priority `HIGH` or `URGENT` if class is starting soon.
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card
+    title="Explore Learning Levels"
+    icon="compass"
+    href="/levels/overview"
+  >
+    Learn about Grammar, Listening, and Conversational tracks
+  </Card>
+  <Card
+    title="API Reference"
+    icon="code"
+    href="/api/auth/overview"
+  >
+    Integrate with the platform API for custom solutions
+  </Card>
+  <Card
+    title="Virtual Classes"
+    icon="video"
+    href="/features/virtual-classes"
+  >
+    Discover individual and group class formats
+  </Card>
+  <Card
+    title="Learning Activities"
+    icon="brain"
+    href="/features/learning-activities"
+  >
+    Explore AI-powered exams and exercises
+  </Card>
+</CardGroup>
+
+## Need Help?
+
+<Card
+  title="Support Tickets"
+  icon="headset"
+  href="/admin/support-tickets"
+>
+  Submit a support ticket for assistance. Average response time: 24 hours
+</Card>
+
+<Info>
+  For urgent issues during class time, contact via WhatsApp: **+11-3057-7799**
+</Info>

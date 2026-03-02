@@ -1,0 +1,141 @@
+---
+title: Admin Dashboard Overview
+description: Comprehensive overview of the Speak English Now admin dashboard and administrative capabilities
+---
+
+The admin dashboard provides platform administrators with complete control over virtual classes, user management, support tickets, and system configuration.
+
+## Accessing the Admin Dashboard
+
+The admin dashboard is available at `/admin` and is restricted to authorized administrators only.
+
+### Authentication Requirements
+
+Admin access is controlled through environment-based authentication:
+
+<ParamField path="ADMIN_EMAIL" type="string" required>
+  Email address of the platform administrator. Only users with this email can access admin features.
+</ParamField>
+
+**Implementation:** `src/auth.ts:73-76`
+
+```typescript
+if (profile.email === process.env.ADMIN_EMAIL! && account.refresh_token) {
+  token.refreshToken = account.refresh_token
+  await updateRefreshTokenInDb(user.id, token.refreshToken as string)
+}
+```
+
+<Warning>
+  Only one admin email is supported by default. All admin features check for exact email match against `ADMIN_EMAIL` environment variable.
+</Warning>
+
+## Dashboard Features
+
+The admin dashboard provides access to:
+
+### 1. Class Management
+View and manage all virtual classes across the platform with filtering capabilities:
+- **All classes** - Complete list of scheduled, completed, and cancelled classes
+- **Scheduled** - Upcoming and active classes
+- **Completed** - Historical class data
+
+### 2. Activity Assignment
+Create and assign AI-generated activities, exams, and learning materials to virtual classes.
+
+### 3. User Management
+View user data, manage permissions, and track student progress through the platform.
+
+### 4. Support Tickets
+Handle user support requests through an integrated ticket system with real-time messaging.
+
+### 5. System Configuration
+Access to platform settings including:
+- Payment integration configuration
+- Google Calendar setup
+- Authentication settings
+
+## Dashboard Interface
+
+### Class Filtering
+
+The dashboard provides query parameter-based filtering:
+
+- `?status=scheduled` - View only scheduled classes
+- `?status=completed` - View only completed classes
+- Default (no param) - View all classes
+
+**Implementation:** `src/app/(dashboard)/admin/page.tsx:42-46`
+
+### Class Information Display
+
+Each class entry shows:
+
+| Field | Description |
+|-------|-------------|
+| **Dia** | Class date |
+| **Horario** | Start and end time (24-hour format) |
+| **Tipo** | Class type (individual/grupal) with participant count |
+| **Rol** | Administrator role indicator |
+| **Estado** | Status (Reservada/Completada/Cancelada) |
+| **Codigo** | Access code for joining the class |
+| **Meeting** | Google Meet link access |
+| **Tarea IA** | Activity assignment status (Pendiente/Enviada) |
+
+## Admin-Specific Features
+
+### Google Calendar Integration
+
+Admins have special Google Calendar permissions:
+
+- Refresh token storage for persistent calendar access
+- OAuth2 scopes include `https://www.googleapis.com/auth/calendar.events`
+- Automatic event creation for paid classes
+
+### Database Access
+
+Admins can access all database models through server actions:
+
+- `VirtualClass` - All virtual class records
+- `User` - User profiles and activity
+- `Task` - Learning activities and assignments
+- `UserActivity` - Student progress tracking
+- `PaymentMercadoPago` - Payment records
+- `SupportTicket` - Support ticket system
+
+## Security Considerations
+
+<Warning>
+  Admin routes include email verification on every page load:
+  
+  ```typescript
+  const isAdmin = session?.user.email === process.env.ADMIN_EMAIL!
+  if (!isAdmin) {
+    return <MaxWidthWrapper>
+      <h1>No tienes los permisos necesarios para acceder a esta ruta</h1>
+    </MaxWidthWrapper>
+  }
+  ```
+</Warning>
+
+## Navigation
+
+- **/admin** - Main dashboard with class list
+- **/admin/actividad/[classId]** - Activity assignment for specific class
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Class Management" icon="chalkboard-user" href="/admin/class-management">
+    Manage virtual classes, activities, and assignments
+  </Card>
+  <Card title="User Management" icon="users" href="/admin/user-management">
+    Handle user accounts, roles, and permissions
+  </Card>
+  <Card title="Support Tickets" icon="ticket" href="/admin/support-tickets">
+    Respond to user support requests
+  </Card>
+  <Card title="Setup & Configuration" icon="gear" href="/admin/setup">
+    Configure platform settings and integrations
+  </Card>
+</CardGroup>

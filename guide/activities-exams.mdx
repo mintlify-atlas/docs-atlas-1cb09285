@@ -1,0 +1,269 @@
+---
+title: Activities & Exams
+description: Complete AI-generated activities and take exams to evaluate your English learning progress
+---
+
+## Overview
+
+After completing virtual classes, AI-generated activities and exams are assigned to help you practice and evaluate what you've learned. These activities test your comprehension and reinforce key concepts.
+
+## Accessing Your Activities
+
+Navigate to **Mis Actividades** (My Activities) from your dashboard at `/inicio/mis-actividades`.
+
+<Note>
+  Activities are automatically created by the AI tutor after you complete a virtual class. They evaluate the knowledge acquired during your session.
+</Note>
+
+## Activity Types
+
+The platform offers four types of activities:
+
+### Exam (exam)
+Written tests covering grammar, vocabulary, and comprehension.
+
+### Audio (audio)
+Listening exercises focusing on:
+- Comprehension of spoken English
+- Understanding movies and conversations
+- Developing listening skills
+
+### Video (video)
+Video-based activities for:
+- Visual learning reinforcement
+- Contextual understanding
+- Multimedia engagement
+
+### Reading (reading)
+Text-based exercises emphasizing:
+- Reading comprehension
+- Text analysis
+- Vocabulary in context
+
+## Difficulty Levels
+
+Activities are assigned one of three difficulty levels:
+
+- **Easy** (Fácil): Beginner-friendly exercises
+- **Medium** (Medio): Default difficulty for most activities
+- **Hard** (Difícil): Advanced challenges
+
+<Tip>
+  Difficulty levels are assigned based on your class level and learning progress. The AI tutor adapts activities to match your proficiency.
+</Tip>
+
+## Activity Structure
+
+### Activity Details Page
+
+When you select an activity, you'll see:
+
+- **Title**: Activity name describing the focus
+- **Instructions**: How to complete the activity
+- **Description**: Detailed explanation of the task (rendered from Markdown)
+- **Difficulty**: Easy, Medium, or Hard
+- **Type**: Exam, Audio, Video, or Reading
+- **Begin Button**: Starts the activity
+
+### Markdown Content
+
+Activity descriptions support:
+
+- **Tables**: Structured data presentation
+- **Code blocks**: For programming-related content or examples
+- **Inline code**: Highlighted terms and phrases
+- **Text formatting**: Bold, italic, lists
+
+## Completing an Activity
+
+<Steps>
+  <Step title="Select an Activity">
+    From the Mis Actividades page, find an incomplete activity in your list.
+  </Step>
+
+  <Step title="Review the Details">
+    Click on the activity to view:
+    - Full instructions
+    - Description and requirements
+    - Difficulty and type
+    
+    This is shown at `/actividad/[actividadId]`.
+  </Step>
+
+  <Step title="Start the Activity">
+    Click the **"Comenzar actividad"** (Begin Activity) button to start.
+    
+    You'll be redirected to `/actividad/[actividadId]/resolver`.
+  </Step>
+
+  <Step title="Work on the Content">
+    The activity content is displayed using Markdown formatting:
+    - Read through the material carefully
+    - Complete any exercises or questions
+    - Take notes as needed
+    
+    <Note>
+      You can complete activities at your own pace. There's no strict time limit.
+    </Note>
+  </Step>
+
+  <Step title="Mark as Complete">
+    When you finish, the activity is automatically marked as completed (`completed: true`).
+    
+    The system tracks:
+    - Completion status
+    - Time started
+    - Last updated timestamp
+  </Step>
+
+  <Step title="Access Answer Key (90 Minutes Later)">
+    After 90 minutes from starting the activity:
+    - The answer sidebar becomes available
+    - View the correct solutions (`solvedContent`)
+    - Compare your answers with the AI-generated solutions
+    
+    <Tip>
+      Use the 90-minute window to attempt the activity independently before checking answers. This reinforces learning.
+    </Tip>
+  </Step>
+</Steps>
+
+## Activity Status Tracking
+
+Your progress is tracked through the `UserActivity` model:
+
+- **userId**: Your unique identifier
+- **taskId**: The specific activity
+- **classId**: The virtual class that generated this activity
+- **rol**: Your role (anfitrion or participante)
+- **completed**: Boolean flag (false by default, true when finished)
+- **createdAt**: When the activity was assigned
+- **updatedAt**: Last modification timestamp
+
+## Answer Sidebar
+
+The answer sidebar (`AnswerSidebar` component) provides:
+
+- **Solved Content**: AI-generated correct answers
+- **Last Updated**: Timestamp of when solutions were made available
+- **Comparison Tool**: Side-by-side view of questions and answers
+
+<Note>
+  The answer sidebar only appears 90 minutes after you begin the activity. This ensures you attempt the work before viewing solutions.
+</Note>
+
+## Activity Assignment
+
+Activities are linked to virtual classes:
+
+### After Class Completion
+
+1. Class status changes to "completed"
+2. AI tutor generates a relevant activity
+3. Activity is assigned to all class participants
+4. `activityStatus` updates from "pending" to "uploaded"
+
+### Participant Access
+
+All participants receive:
+- The same activity linked to the class
+- Individual tracking of completion status
+- Separate progress records
+
+## Viewing Activity History
+
+Your activity list shows:
+
+- **Incomplete Activities**: Tasks you haven't finished
+- **Completed Activities**: Finished tasks with completion dates
+- **Class Association**: Which virtual class generated each activity
+- **Type and Difficulty**: Quick reference to activity characteristics
+
+## Retaking Activities
+
+You can:
+
+- Revisit completed activities anytime
+- Review your previous attempts
+- Practice with the same content multiple times
+- Access answer keys for reference
+
+<Tip>
+  Retaking activities is an excellent way to reinforce learning and track your progress over time.
+</Tip>
+
+## Activity Content Format
+
+### Markdown Rendering
+
+Activity content uses `ReactMarkdown` with:
+
+- **GFM (GitHub Flavored Markdown)**: Tables, strikethrough, task lists
+- **Custom styling**: Themed tables, code blocks, and text formatting
+- **Responsive design**: Mobile-optimized reading experience
+
+### Example Components
+
+#### Tables
+Neatly formatted with:
+- Header backgrounds (yellow/highlight for light mode, dark for dark mode)
+- Border styling for clarity
+- Responsive padding
+
+#### Code Blocks
+Syntax highlighting for:
+- Inline code with gray background
+- Multi-line code blocks with dark theme
+- Monospace font for readability
+
+## AI Tutor Capabilities
+
+The AI tutor (`solvedContent`) provides:
+
+- **Correct Answers**: Verified solutions to exercises
+- **Explanations**: Why certain answers are correct
+- **Learning Tips**: Additional context and guidance
+- **Markdown Format**: Structured, easy-to-read solutions
+
+## Troubleshooting
+
+### Activity Not Appearing
+
+- Verify you've completed a virtual class recently
+- Check that the class status is "completed"
+- Ensure `activityStatus` is "uploaded" not "pending"
+- Refresh the Mis Actividades page
+
+### Answer Sidebar Not Available
+
+- Confirm 90 minutes have passed since starting
+- Check the activity's `updatedAt` timestamp
+- Verify you've marked the activity as started
+- Reload the activity page
+
+### Content Not Rendering
+
+- Ensure JavaScript is enabled in your browser
+- Check browser console for Markdown parsing errors
+- Try clearing cache and reloading
+- Use a supported browser (Chrome, Firefox, Safari, Edge)
+
+## Best Practices
+
+<Tip>
+  Complete activities within 24-48 hours of your virtual class while the material is still fresh in your mind.
+</Tip>
+
+- **Review class notes**: Before starting the activity
+- **Avoid answer key**: Until you've genuinely attempted the work
+- **Take your time**: There's no rush; learning is the goal
+- **Ask questions**: Contact your instructor if you're stuck
+- **Track progress**: Review completed activities regularly
+
+## Next Steps
+
+After completing activities:
+
+1. Book [additional classes](/guide/booking-classes) to continue learning
+2. Explore [different learning levels](/levels/overview) to advance your skills
+3. Check your [billing history](/guide/billing) for payment records

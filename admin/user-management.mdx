@@ -1,0 +1,414 @@
+---
+title: User Management
+description: Managing users, roles, and permissions in the Speak English Now platform
+---
+
+The user management system handles user accounts, authentication, roles, and student progress tracking.
+
+## User Data Model
+
+The platform uses MongoDB with Prisma for user data storage.
+
+### User Schema
+
+<ParamField path="id" type="string">
+  MongoDB ObjectId - unique user identifier
+</ParamField>
+
+<ParamField path="email" type="string" required>
+  User's email address (unique, used for authentication)
+</ParamField>
+
+<ParamField path="name" type="string" required>
+  User's full name
+</ParamField>
+
+<ParamField path="image" type="string">
+  Profile image URL from OAuth provider
+</ParamField>
+
+<ParamField path="localidad" type="string" default="-">
+  User's location/city
+</ParamField>
+
+<ParamField path="telefono" type="number" default="0">
+  Phone number
+</ParamField>
+
+<ParamField path="nivel" type="enum" default="inicial">
+  English level: `inicial`, `basico`, `intermedio`, or `avanzado`
+</ParamField>
+
+<ParamField path="status" type="boolean" default="false">
+  Account status flag
+</ParamField>
+
+<ParamField path="newsletter" type="enum" default="no">
+  Newsletter subscription: `si` or `no`
+</ParamField>
+
+<ParamField path="totalClasses" type="number" default="0">
+  Total number of completed classes
+</ParamField>
+
+<ParamField path="googleRefreshToken" type="string">
+  OAuth refresh token for Google services (admin only)
+</ParamField>
+
+**Schema Reference:** `prisma/schema.prisma:111-128`
+
+## Role System
+
+The platform supports three user roles:
+
+### Role Definitions
+
+<ParamField path="USER" type="role">
+  Standard user with access to student features
+</ParamField>
+
+<ParamField path="ADMIN" type="role">
+  Administrator with full platform access
+</ParamField>
+
+<ParamField path="MOD" type="role">
+  Moderator with elevated permissions (reserved for future use)
+</ParamField>
+
+**Enum Definition:** `prisma/schema.prisma:16-20`
+
+<Note>
+  Currently, admin status is determined by email match with `ADMIN_EMAIL` environment variable rather than a database role field.
+</Note>
+
+## User Authentication
+
+Authentication is handled through NextAuth.js with OAuth providers.
+
+### Supported Providers
+
+1. **GitHub OAuth**
+2. **Google OAuth** (with Calendar API access)
+
+### Authentication Flow
+
+#### 1. Sign In Callback
+
+**Implementation:** `src/auth.ts:35-53`
+
+```typescript
+async signIn({ user, account, profile }) {
+  const { name, email, image } = user as User
+  
+  const userFound = await loggedAsAdmin(email)
+  
+  if (!userFound) {
+    await createUser(name, email, image)
+    return true
+  }
+  
+  return true
+}
+```
+
+New users are automatically created on first sign-in.
+
+#### 2. JWT Token Handling
+
+**Implementation:** `src/auth.ts:55-85`
+
+Tokens include:
+- User ID
+- Access token for API calls
+- Refresh token (admin only)
+- 30-day expiration
+
+#### 3. Session Management
+
+**Implementation:** `src/auth.ts:87-104`
+
+Session data includes:
+- User profile information
+- JWT tokens
+- Access and refresh tokens
+- Token expiration times
+
+### Session Configuration
+
+<ParamField path="maxAge" type="number" default="2592000">
+  Session duration: 30 days (60 * 60 * 24 * 30 seconds)
+</ParamField>
+
+<ParamField path="updateAge" type="number" default="43200">
+  Session update interval: 12 hours
+</ParamField>
+
+## User Creation
+
+New users are created automatically during OAuth sign-in:
+
+**Server Action:** `src/server-actions/actions.ts:26-42`
+
+```typescript
+export async function createUser(name: string, email: string, image: string) {
+  try {
+    const newUser = await db.user.create({
+      data: {
+        name,
+        email,
+        image
+      }
+    })
+    return true
+  } catch (error) {
+    console.error("We found an error creating this new user: ", error)
+    return { message: "We found an error creating this new user", status: 500 }
+  }
+}
+```
+
+<Note>
+  User creation uses default values from schema for optional fields (localidad, telefono, nivel, etc.).
+</Note>
+
+## User Profile Management
+
+Users can update their profile information after account creation.
+
+### Retrieving User Data
+
+**Function:** `src/services/functions/index.ts:39-55`
+
+```typescript
+export async function getUserData({ id }: { id: string }) {
+  try {
+    const response = await db.user.findUnique({
+      where: { id },
+      select: {
+        localidad: true,
+        nivel: true,
+        telefono: true,
+        newsletter: true
+      }
+    })
+    return response
+  } catch (error) {
+    console.log(error);
+    return error
+  }
+}
+```
+
+### Updating User Data
+
+**Function:** `src/services/functions/index.ts:58-74`
+
+```typescript
+export async function updateUserData({
+  id,
+  localidad,
+  nivel,
+  telefono,
+  newsletter
+}: {
+  id: string,
+  localidad: string,
+  nivel: $Enums.NivelIngles,
+  telefono: number,
+  newsletter: 'si' | 'no'
+}) {
+  try {
+    const response = await db.user.update({
+      where: { id },
+      data: { localidad, nivel, telefono, newsletter }
+    })
+    return response
+  } catch (error) {
+    console.log(error);
+    return error
+  }
+}
+```
+
+## English Level Management
+
+Users can set their English proficiency level:
+
+### Level Options
+
+| Level | Description |
+|-------|-------------|
+| `inicial` | Beginner/Initial level |
+| `basico` | Basic level |
+| `intermedio` | Intermediate level |
+| `avanzado` | Advanced level |
+
+**Enum Definition:** `prisma/schema.prisma:28-33`
+
+Level selection affects:
+- Activity difficulty recommendations
+- Class matching
+- Progress tracking
+
+## User Activity Tracking
+
+Student progress is tracked through the `UserActivity` model:
+
+### UserActivity Schema
+
+<ParamField path="userId" type="string" required>
+  Reference to User ID
+</ParamField>
+
+<ParamField path="taskId" type="string">
+  Reference to assigned Task
+</ParamField>
+
+<ParamField path="classId" type="string" required>
+  Reference to VirtualClass
+</ParamField>
+
+<ParamField path="rol" type="enum" required>
+  User's role in class: `anfitrion` (host) or `participante` (participant)
+</ParamField>
+
+<ParamField path="completed" type="boolean" default="false">
+  Whether the activity has been completed
+</ParamField>
+
+**Schema Reference:** `prisma/schema.prisma:168-180`
+
+### Creating Activity Records
+
+When a user joins or creates a class:
+
+```typescript
+await db.userActivity.create({
+  data: {
+    userId: newClass.bookedById,
+    classId: newClass.id,
+    taskId: null,
+    rol: 'anfitrion',
+    completed: false
+  }
+})
+```
+
+**Implementation:** `src/services/functions/index.ts:229-237`
+
+## Admin User Features
+
+Administrators have additional capabilities:
+
+### Refresh Token Storage
+
+Only admin users store Google OAuth refresh tokens:
+
+```typescript
+if (profile.email === process.env.ADMIN_EMAIL! && account.refresh_token) {
+  token.refreshToken = account.refresh_token
+  await updateRefreshTokenInDb(user.id, token.refreshToken as string)
+}
+```
+
+**Implementation:** `src/auth.ts:73-76`
+
+This enables:
+- Persistent Google Calendar access
+- Creating events on behalf of the platform
+- Accessing Calendar API without repeated authorization
+
+### Refresh Token Database Storage
+
+**Function:** `src/services/functions/index.ts:9-22`
+
+```typescript
+export async function updateRefreshTokenInDb(userId: string, refreshToken: string) {
+  try {
+    const response = await db.user.update({
+      where: { id: userId },
+      data: {
+        googleRefreshToken: refreshToken
+      }
+    })
+    return response
+  } catch (error) {
+    console.log(error);
+    return error
+  }
+}
+```
+
+## Total Classes Counter
+
+The `totalClasses` field tracks completed classes per user:
+
+### Incrementing Class Count
+
+After activity upload for a class:
+
+```typescript
+await db.user.updateMany({
+  where: {
+    id: { in: userIds }
+  },
+  data: {
+    totalClasses: { increment: 1 }
+  }
+})
+```
+
+**Implementation:** `src/app/(dashboard)/admin/actividad/[classId]/actions.ts:98-110`
+
+This counter:
+- Increments when admin uploads activity for a class
+- Tracks all participants in the class
+- Provides student progress metrics
+
+## User Relationships
+
+Users are related to multiple entities:
+
+### One-to-Many Relationships
+
+- **UserActivity[]** - All user's class activities
+- **PaymentMercadoPago[]** - User's payment records
+- **SupportTicket[]** - User's support tickets
+
+### Through Virtual Classes
+
+- Classes hosted (via `bookedById`)
+- Classes attended (via `participantsIds` array)
+
+## Security Considerations
+
+<Warning>
+  User emails are unique and used as the primary authentication identifier. Never expose user IDs or email addresses in client-side code.
+</Warning>
+
+### Admin Email Protection
+
+Admin status should never be stored in client-accessible state:
+
+```typescript
+// Server-side check only
+const isAdmin = session?.user.email === process.env.ADMIN_EMAIL!
+```
+
+### Session Security
+
+- Sessions expire after 30 days
+- JWT tokens are signed and validated
+- Refresh tokens are only stored for admin users
+- OAuth providers handle password management
+
+## Related Resources
+
+<CardGroup cols={2}>
+  <Card title="Authentication Setup" icon="key" href="/admin/setup">
+    Configure OAuth providers and authentication
+  </Card>
+  <Card title="Class Management" icon="chalkboard-user" href="/admin/class-management">
+    Understand how users interact with classes
+  </Card>
+</CardGroup>

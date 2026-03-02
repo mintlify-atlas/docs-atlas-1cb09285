@@ -1,0 +1,539 @@
+---
+title: "Virtual Classes"
+description: "Learn how to implement and manage virtual classes with individual and group sessions, booking system, and Google Meet integration"
+---
+
+## Overview
+
+The virtual class system enables students to book and attend English lessons through Google Meet. The platform supports both individual and group classes with real-time scheduling, access codes, and participant management.
+
+## Class Types
+
+The platform supports two types of virtual classes defined in the database schema:
+
+<CodeGroup>
+```prisma prisma/schema.prisma
+enum ClassType {
+  individual
+  grupal
+}
+
+enum Status {
+  scheduled
+  pending
+  completed
+  cancelled
+}
+
+enum HostType {
+  anfitrion
+  invitado
+}
+```
+</CodeGroup>
+
+### Individual Classes
+- One-on-one sessions between teacher and student
+- Maximum 1 participant
+- Base price: 15,000 ARS
+- Personalized learning focus
+
+### Group Classes (Grupal)
+- Multiple students in one session (2-5 participants)
+- Shared learning experience
+- Pricing per student count:
+  - 2 students: 30,000 ARS
+  - 3 students: 36,000 ARS
+  - 4 students: 48,000 ARS
+  - 5 students: 60,000 ARS
+
+<Note>
+Pricing is configured in `src/config/pricing.json` and can be adjusted as needed.
+</Note>
+
+## Virtual Class Model
+
+The `VirtualClass` model stores all class information and integrates with Google Calendar:
+
+<CodeGroup>
+```prisma prisma/schema.prisma
+model VirtualClass {
+  id                  String         @id @default(auto()) @map("_id") @db.ObjectId
+  googleEventId       String?        @unique
+  bookedById          String         @db.ObjectId
+  accessCode          String?
+  startTime           DateTime
+  endTime             DateTime
+  hostType            HostType       @default(anfitrion)
+  currentParticipants Int            @default(1)
+  maxParticipants     Int
+  classType           ClassType
+  classPrice          Int
+  htmlLink            String?
+  status              Status         @default(pending)
+  summary             String?
+  description         String?
+  learningFocus       String?
+  preferenceId        String?        @db.String
+  activityStatus      ActivityStatus @default(pending)
+  participantsIds     String[]       @default([])
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+}
+```
+</CodeGroup>
+
+## Booking Flow
+
+The booking process follows these steps:
+
+### 1. Create Payment Preference
+
+First, create a Mercado Pago preference to initiate payment:
+
+<CodeGroup>
+```typescript api/mercado-pago/create-preference/route.ts
+export async function POST(request: NextRequest) {
+  const body = await request.json();
+  const session = await auth();
+  const { type, studentsCount, price } = body;
+
+  const client = new MercadoPagoConfig({ 
+    accessToken: process.env.MERCADO_PAGO_ACCESS_TOKEN! 
+  });
+  const preference = new Preference(client);
+
+  const mpBody = {
+    items: [{
+      id: `${session.user.id}-${Date.now()}`,
+      title: `HablaInglesYa - Clase virtual para ${studentsCount} persona(s)`,
+      quantity: 1,
+      unit_price: price,
+      currency_id: "ARS",
+    }],
+    notification_url: `${process.env.BASE_URL}api/mercado-pago/webhook`,
+    back_urls: {
+      success: `${process.env.BASE_URL}/checkout/callback/success`,
+      failure: `${process.env.BASE_URL}/checkout/callback/failure`,
+      pending: `${process.env.BASE_URL}/checkout/callback/pending`,
+    },
+    auto_return: "approved",
+  };
+
+  const result = await preference.create({ body: mpBody });
+  
+  // Save payment record
+  const data: PaymentMP = {
+    userId: session.user.id,
+    preferenceId: result.id,
+    amount: Number(price),
+    type: type,
+    maxParticipants: Number(studentsCount),
+    status: 'pending',
+  };
+  
+  await createPayment(data);
+  return NextResponse.json({ 
+    preferenceId: result.id, 
+    initPoint: result.init_point 
+  });
+}
+```
+</CodeGroup>
+
+### 2. Create Booking
+
+After payment initiation, create a pending booking:
+
+<CodeGroup>
+```typescript api/booking/route.ts
+export async function POST(request: Request) {
+  const session = await auth();
+  const userId = session.user.id;
+  const { start, end, isGroupClass, studentsCount, text, price, preferenceId } = 
+    await request.json();
+
+  const bookingData = {
+    start,
+    end,
+    classType: isGroupClass ? "grupal" : "individual",
+    classPrice: Number(price),
+    maxParticipants: isGroupClass ? studentsCount : 1,
+    preferenceId,
+    learningFocus: text
+  };
+
+  // Create booking with "pending" status
+  const isbooked = await createVirtualClass(bookingData, userId);
+  return NextResponse.json({ success: true });
+}
+```
+
+```typescript services/functions/index.ts
+export async function createVirtualClass(body: any, userId: string) {
+  const booking = await db.virtualClass.create({
+    data: {
+      bookedById: userId,
+      startTime: new Date(body.start),
+      endTime: new Date(body.end),
+      classType: body.classType,
+      classPrice: body.classPrice,
+      maxParticipants: body.maxParticipants,
+      preferenceId: body.preferenceId,
+      learningFocus: body.learningFocus,
+      participantsIds: [userId]
+    }
+  });
+  return { success: true };
+}
+```
+</CodeGroup>
+
+### 3. Payment Confirmation
+
+When payment is approved via webhook, the class is updated with Google Meet details:
+
+<CodeGroup>
+```typescript api/mercado-pago/webhook/route.ts
+export async function POST(req: Request) {
+  const body = JSON.parse(await req.text());
+  const topic = body?.topic;
+  const resource = body?.resource;
+
+  if (topic === "merchant_order") {
+    const orderRes = await fetch(resource, {
+      headers: {
+        Authorization: `Bearer ${process.env.MERCADO_PAGO_ACCESS_TOKEN}`,
+      },
+    });
+    const order = await orderRes.json();
+    const payment = order.payments?.[0];
+
+    if (payment.status === "approved") {
+      const preferenceId = order.preference_id;
+      await updatePayment(preferenceId);
+      
+      // Create Google Calendar event
+      await KY(Method.POST, API_ROUTES.CALENDAR, {
+        json: { preferenceId }
+      });
+    }
+  }
+  return Response.json({ ok: true });
+}
+```
+</CodeGroup>
+
+## Access Code System
+
+Each scheduled class receives a unique 8-character access code for participants to join:
+
+<CodeGroup>
+```typescript services/functions/index.ts
+export async function updateVirtualClass(googleCalendarEvent: any, body: any) {
+  // Generate random 8-character access code
+  const randomCode = Math.random()
+    .toString(36)
+    .substring(2, 10)
+    .toUpperCase();
+
+  const saveCalendarEvent = {
+    googleEventId: googleCalendarEvent.id,
+    accessCode: randomCode,
+    startTime: new Date(googleCalendarEvent.start.dateTime),
+    endTime: new Date(googleCalendarEvent.end.dateTime),
+    htmlLink: googleCalendarEvent.conferenceData.entryPoints[0].uri,
+    status: "scheduled",
+    // ... other fields
+  };
+
+  await db.virtualClass.update({
+    where: { id: reservedClassFound.id },
+    data: saveCalendarEvent
+  });
+}
+```
+</CodeGroup>
+
+### Joining with Access Code
+
+Participants can join group classes using the access code:
+
+<CodeGroup>
+```typescript api/access-code/route.ts
+export async function POST(request: NextRequest) {
+  const session = await auth();
+  const body = await request.json();
+  const response = await getGoogleMeetLink(body);
+
+  // Validate host cannot join as participant
+  if (response?.bookedById === session?.user?.id) {
+    return NextResponse.json({ 
+      response: { 
+        message: "El creador de la clase no puede unirse como participante" 
+      } 
+    });
+  }
+
+  // Check if class has ended
+  if (response?.endTime) {
+    const now = new Date();
+    const endTime = new Date(response.endTime);
+    if (now > endTime) {
+      return NextResponse.json({ 
+        response: { message: "La clase ya ha finalizado." } 
+      });
+    }
+  }
+
+  // Add participant to class
+  if (response) {
+    const guestResponse = await addParticipant(response, session?.user?.id);
+    return NextResponse.json({ response: guestResponse });
+  }
+}
+```
+</CodeGroup>
+
+## Participant Management
+
+The system tracks participants and enforces capacity limits:
+
+<CodeGroup>
+```typescript services/functions/index.ts
+export async function addParticipant(event: any, userId: string) {
+  const result = await db.$transaction(async (tx) => {
+    const existing = await tx.virtualClass.findUnique({
+      where: { id: event.id },
+      select: {
+        participantsIds: true,
+        currentParticipants: true,
+        maxParticipants: true
+      }
+    });
+
+    // Check if user already registered
+    if (existing.participantsIds.includes(userId)) {
+      return { message: "El usuario ya está registrado en la clase" };
+    }
+
+    // Check capacity
+    if (existing.currentParticipants >= existing.maxParticipants) {
+      return { message: "La clase ya alcanzó el número máximo de participantes" };
+    }
+
+    // Create user activity record
+    await tx.userActivity.create({
+      data: {
+        userId,
+        classId: event.id,
+        taskId: null,
+        rol: 'participante',
+        completed: false,
+      },
+    });
+
+    // Update class
+    return await tx.virtualClass.update({
+      where: { id: event.id },
+      data: {
+        currentParticipants: { increment: 1 },
+        participantsIds: { push: userId },
+      },
+    });
+  });
+  return result;
+}
+```
+</CodeGroup>
+
+## Class Display
+
+The virtual classes page shows upcoming and past classes:
+
+<CodeGroup>
+```tsx app/(main)/inicio/mis-clases-virtuales/page.tsx
+const MisClasesVirtuales = async () => {
+  const session = await auth();
+
+  return (
+    <>
+      <div className='flex space-x-4 items-end'>
+        <Computer className='mb-0.5' />
+        <H1 title='Mis Clases Virtuales' />
+      </div>
+      <h2>Aqui veras las clases virtuales que tengas reservadas. 
+          El boton para unirse a la clase aparecera 60 minutos antes 
+          de que comience la clase.</h2>
+      <GetCode />
+      
+      <Card className='border border-card'>
+        {session?.user.id && (
+          <AllClasses session={session} type={"upcoming"} />
+        )}
+      </Card>
+    </>
+  );
+};
+```
+</CodeGroup>
+
+### Individual Class Card
+
+Each class displays comprehensive information:
+
+<CodeGroup>
+```tsx components/mis-clases-virtuales/EachClass.tsx
+const EachClass = async ({ classItem, index }: Props) => {
+  const session = await auth();
+  const estado = classItem.status === 'scheduled' 
+    ? 'Reservada' 
+    : classItem.status === 'completed' 
+    ? 'Completada' 
+    : 'Cancelada';
+
+  return (
+    <Card className='flex border border-card'>
+      <p>Dia: {formatUTCDate(String(classItem.startTime))}</p>
+      <p>Hora: {parsedStartTime} a {parsedEndTime} hs</p>
+      <p>Tipo: {classItem.classType} 
+        {classItem.classType == 'grupal' && 
+          `(${classItem.currentParticipants}/${classItem.maxParticipants})`
+        }
+      </p>
+      <p>Rol: {classItem.bookedById == session?.user?.id 
+        ? 'anfitrion' 
+        : 'invitado'
+      }</p>
+      <p>Estado: {estado}</p>
+      
+      {classItem.bookedById == session?.user?.id && (
+        <AccessCodeClient 
+          code={classItem.accessCode} 
+          classType={classItem.classType} 
+        />
+      )}
+      
+      <JoinClass
+        link={classItem.htmlLink}
+        status={classItem.status}
+        date={formatUTCDate(String(classItem.startTime))}
+        time={{ start: parsedStartTime, end: parsedEndTime }}
+      />
+    </Card>
+  );
+};
+```
+</CodeGroup>
+
+## User Activity Tracking
+
+The system tracks class participation through `UserActivity`:
+
+<CodeGroup>
+```prisma prisma/schema.prisma
+enum classRole {
+  anfitrion
+  participante
+}
+
+model UserActivity {
+  id        String        @id @default(auto()) @map("_id") @db.ObjectId
+  userId    String        @db.ObjectId
+  taskId    String?       @db.ObjectId
+  classId   String        @db.ObjectId
+  rol       classRole
+  completed Boolean?      @default(false)
+  user      User?         @relation(fields: [userId], references: [id])
+  task      Task?         @relation(fields: [taskId], references: [id])
+  class     VirtualClass? @relation(fields: [classId], references: [id])
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+```
+</CodeGroup>
+
+<Info>
+User activity records are created automatically when:
+- A class host books a new class (rol: `anfitrion`)
+- A participant joins a group class (rol: `participante`)
+</Info>
+
+## API Endpoints
+
+### Get Upcoming Classes
+
+<CodeGroup>
+```typescript api/upcoming-classes/route.ts
+GET /api/upcoming-classes
+```
+</CodeGroup>
+
+Returns all upcoming classes ordered by start time.
+
+### Create Booking
+
+<CodeGroup>
+```typescript api/booking/route.ts
+POST /api/booking
+
+Body:
+{
+  "start": "2026-03-15T10:00:00Z",
+  "end": "2026-03-15T11:00:00Z",
+  "isGroupClass": false,
+  "studentsCount": 1,
+  "text": "Focus on conversation skills",
+  "price": 15000,
+  "preferenceId": "162275027-fe8b544b"
+}
+```
+</CodeGroup>
+
+### Join with Access Code
+
+<CodeGroup>
+```typescript api/access-code/route.ts
+POST /api/access-code
+
+Body:
+{
+  "accessCode": "A3B5C7D9"
+}
+
+Response:
+{
+  "response": {
+    "htmlLink": "https://meet.google.com/abc-defg-hij",
+    "startTime": "2026-03-15T10:00:00Z",
+    "endTime": "2026-03-15T11:00:00Z"
+  }
+}
+```
+</CodeGroup>
+
+## Best Practices
+
+<Card title="Scheduling" icon="calendar">
+- Classes can only be joined 60 minutes before start time
+- System validates time zones (America/Argentina/Buenos_Aires)
+- Prevent double-booking through calendar integration
+</Card>
+
+<Card title="Capacity Management" icon="users">
+- Enforce participant limits before accepting new members
+- Track current vs. maximum participants in real-time
+- Use database transactions for concurrent join attempts
+</Card>
+
+<Card title="Access Control" icon="lock">
+- Only class hosts can view access codes
+- Hosts cannot join their own classes as participants
+- Validate class status before allowing joins
+</Card>
+
+## Related Features
+
+- [Payment System](/features/payment-system) - Mercado Pago integration for class payments
+- [Calendar Integration](/features/calendar-integration) - Google Calendar and Meet setup
+- [Learning Activities](/features/learning-activities) - AI activities assigned after classes

@@ -1,0 +1,240 @@
+---
+title: 'Authentication Overview'
+description: 'Learn how authentication works with NextAuth.js, OAuth providers, and session management'
+---
+
+## Introduction
+
+The platform implements authentication using [NextAuth.js](https://next-auth.js.org/) v5 with OAuth 2.0 providers. The system supports multiple OAuth providers and implements custom session management with JWT tokens.
+
+## Authentication Flow
+
+The authentication flow follows the OAuth 2.0 authorization code flow:
+
+1. User initiates sign-in via OAuth provider (Google or GitHub)
+2. User is redirected to provider's authentication page
+3. After successful authentication, user is redirected back to the application
+4. NextAuth processes the callback and creates a session
+5. User data is stored in the database and JWT token is generated
+6. Session information is available throughout the application
+
+## Supported Providers
+
+The platform currently supports two OAuth providers:
+
+<CardGroup cols={2}>
+  <Card title="Google OAuth" icon="google" href="/api/auth/google-oauth">
+    Full Google OAuth integration with Calendar API access
+  </Card>
+  <Card title="GitHub OAuth" icon="github">
+    GitHub authentication provider
+  </Card>
+</CardGroup>
+
+## Authentication Endpoints
+
+All authentication endpoints are available under `/api/auth/`:
+
+<ResponseField name="GET /api/auth/providers" type="endpoint">
+  Returns available authentication providers
+</ResponseField>
+
+<ResponseField name="GET /api/auth/signin" type="endpoint">
+  Displays the sign-in page
+</ResponseField>
+
+<ResponseField name="GET /api/auth/signout" type="endpoint">
+  Handles user sign-out
+</ResponseField>
+
+<ResponseField name="GET /api/auth/callback/:provider" type="endpoint">
+  OAuth callback endpoint for each provider
+</ResponseField>
+
+<ResponseField name="GET /api/auth/session" type="endpoint">
+  Returns current session information
+</ResponseField>
+
+## Quick Start
+
+### Check Available Providers
+
+<CodeGroup>
+
+```bash curl
+curl http://localhost:3000/api/auth/providers
+```
+
+```javascript fetch
+const providers = await fetch('http://localhost:3000/api/auth/providers')
+  .then(res => res.json());
+console.log(providers);
+```
+
+</CodeGroup>
+
+### Initiate Sign In
+
+```typescript
+import { signIn } from '@/auth'
+
+// Sign in with Google
+await signIn('google')
+
+// Sign in with GitHub
+await signIn('github')
+```
+
+### Get Current Session
+
+```typescript
+import { auth } from '@/auth'
+
+export default async function Page() {
+  const session = await auth()
+  
+  if (!session?.user) {
+    return <div>Not authenticated</div>
+  }
+  
+  return <div>Welcome, {session.user.name}!</div>
+}
+```
+
+### Sign Out
+
+```typescript
+import { signOut } from '@/auth'
+
+// Sign out user
+await signOut()
+```
+
+## Session Structure
+
+The session object contains user information and authentication tokens:
+
+<ResponseField name="user" type="object">
+  User information from OAuth provider
+  
+  <Expandable title="properties">
+    <ResponseField name="id" type="string">
+      User's database ID
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      User's full name
+    </ResponseField>
+    
+    <ResponseField name="email" type="string">
+      User's email address
+    </ResponseField>
+    
+    <ResponseField name="image" type="string">
+      User's profile picture URL
+    </ResponseField>
+    
+    <ResponseField name="sub" type="string">
+      Subject identifier - owner of the token
+    </ResponseField>
+    
+    <ResponseField name="jti" type="string">
+      JWT ID - unique identifier for the token
+    </ResponseField>
+    
+    <ResponseField name="iat" type="string">
+      Issued at timestamp
+    </ResponseField>
+    
+    <ResponseField name="exp" type="string">
+      Expiration timestamp
+    </ResponseField>
+    
+    <ResponseField name="accessToken" type="string">
+      OAuth access token for API calls
+    </ResponseField>
+    
+    <ResponseField name="refreshToken" type="string" optional>
+      Refresh token (admin only)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="expires" type="string">
+  Session expiration timestamp (ISO 8601 format)
+</ResponseField>
+
+## Configuration
+
+The NextAuth configuration is defined in `src/auth.ts:15`:
+
+```typescript
+export const { handlers, signIn, signOut, auth } = NextAuth({
+  providers: [Github, Google({
+    clientId: process.env.AUTH_GOOGLE_ID,
+    clientSecret: process.env.AUTH_GOOGLE_SECRET,
+    authorization: {
+      params: {
+        scope: "openid email profile https://www.googleapis.com/auth/calendar.events",
+        access_type: "offline",
+      }
+    }
+  })],
+  session: {
+    maxAge: 60 * 60 * 24 * 30, // 30 days
+    updateAge: 43200 // 12 hours
+  },
+  jwt: {
+    maxAge: 60 * 60 * 24 * 30 // 30 days
+  },
+  pages: {
+    signIn: '/inicio',
+    signOut: '',
+    error: '/'
+  }
+})
+```
+
+## Environment Variables
+
+Required environment variables for authentication:
+
+<ParamField path="AUTH_GOOGLE_ID" type="string" required>
+  Google OAuth client ID
+</ParamField>
+
+<ParamField path="AUTH_GOOGLE_SECRET" type="string" required>
+  Google OAuth client secret
+</ParamField>
+
+<ParamField path="ADMIN_EMAIL" type="string" required>
+  Email address for admin user with special privileges
+</ParamField>
+
+## Security Features
+
+<CardGroup cols={2}>
+  <Card title="JWT Tokens" icon="key">
+    Secure JSON Web Tokens with 30-day expiration
+  </Card>
+  <Card title="OAuth 2.0" icon="shield-halved">
+    Industry-standard OAuth 2.0 protocol
+  </Card>
+  <Card title="Secure Sessions" icon="lock">
+    Session tokens stored securely with regular updates
+  </Card>
+  <Card title="Database Integration" icon="database">
+    User data persisted in PostgreSQL database
+  </Card>
+</CardGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Google OAuth Setup" icon="google" href="/api/auth/google-oauth">
+    Configure Google OAuth with Calendar API
+  </Card>
+  <Card title="Session Management" icon="clock" href="/api/auth/sessions">
+    Learn about JWT tokens and session handling
+  </Card>
+</CardGroup>

@@ -1,0 +1,119 @@
+---
+title: "Get Upcoming Classes"
+description: "Retrieve all upcoming virtual classes scheduled in the future"
+---
+
+## GET /api/upcoming-classes
+
+Fetches all virtual classes that are scheduled to start in the future, ordered by start time in ascending order.
+
+### Authentication
+
+This endpoint does not require authentication.
+
+### Query Parameters
+
+This endpoint does not accept any query parameters.
+
+### Response
+
+<ResponseField name="response" type="array">
+  Array of upcoming virtual class objects
+  
+  <Expandable title="VirtualClass Object">
+    <ResponseField name="id" type="string">
+      Unique identifier for the virtual class (MongoDB ObjectId)
+    </ResponseField>
+    
+    <ResponseField name="maxParticipants" type="number">
+      Maximum number of participants allowed in the class
+    </ResponseField>
+    
+    <ResponseField name="classType" type="string">
+      Type of class
+      
+      - `"individual"`: One-on-one class
+      - `"grupal"`: Group class
+    </ResponseField>
+    
+    <ResponseField name="status" type="string">
+      Current status of the class
+      
+      - `"scheduled"`: Confirmed and scheduled
+      - `"pending"`: Awaiting confirmation
+      - `"completed"`: Class has finished
+      - `"cancelled"`: Class was cancelled
+    </ResponseField>
+    
+    <ResponseField name="startTime" type="string">
+      ISO 8601 datetime when the class starts
+      
+      Example: `"2026-03-15T10:00:00.000Z"`
+    </ResponseField>
+    
+    <ResponseField name="endTime" type="string">
+      ISO 8601 datetime when the class ends
+      
+      Example: `"2026-03-15T11:00:00.000Z"`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X GET https://your-domain.com/api/upcoming-classes
+```
+
+### Example Response
+
+```json
+{
+  "response": [
+    {
+      "id": "65f8a3b2c1d4e5f6a7b8c9d0",
+      "maxParticipants": 5,
+      "classType": "grupal",
+      "status": "scheduled",
+      "startTime": "2026-03-15T10:00:00.000Z",
+      "endTime": "2026-03-15T11:00:00.000Z"
+    },
+    {
+      "id": "65f8a3b2c1d4e5f6a7b8c9d1",
+      "maxParticipants": 1,
+      "classType": "individual",
+      "status": "scheduled",
+      "startTime": "2026-03-15T14:00:00.000Z",
+      "endTime": "2026-03-15T15:00:00.000Z"
+    },
+    {
+      "id": "65f8a3b2c1d4e5f6a7b8c9d2",
+      "maxParticipants": 3,
+      "classType": "grupal",
+      "status": "pending",
+      "startTime": "2026-03-16T09:00:00.000Z",
+      "endTime": "2026-03-16T10:30:00.000Z"
+    }
+  ]
+}
+```
+
+### Filtering Logic
+
+The endpoint returns classes where:
+- `startTime` is greater than or equal to the current date/time
+- Results are ordered by `startTime` in ascending order (earliest first)
+
+### Use Cases
+
+- Display available upcoming classes on a public calendar
+- Show students what classes are available to join
+- Allow administrators to view the schedule of future classes
+- Enable users to browse classes by type and availability
+
+### Notes
+
+- The response includes classes with any status (`scheduled`, `pending`, etc.)
+- Past classes (where `startTime` is before the current time) are automatically filtered out
+- The response may be empty if no upcoming classes are scheduled
+- Class capacity and current participant information can be used to determine if a class is full

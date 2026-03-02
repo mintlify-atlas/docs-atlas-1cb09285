@@ -1,0 +1,135 @@
+---
+title: 'Create Payment Preference'
+description: 'Create a Mercado Pago payment preference for virtual class bookings'
+---
+
+## POST /api/mercado-pago/create-preference
+
+Creates a new Mercado Pago payment preference and initializes a payment record in the database. This endpoint is used when users book virtual English classes.
+
+### Authentication
+
+Requires user authentication via session.
+
+### Request Body
+
+<ParamField name="type" type="string" required>
+  Class type: `individual` or `grupal`
+</ParamField>
+
+<ParamField name="studentsCount" type="number" required>
+  Number of students participating in the class (1-5)
+</ParamField>
+
+<ParamField name="price" type="number" required>
+  Total price for the class in ARS
+</ParamField>
+
+### Response
+
+<ResponseField name="preferenceId" type="string">
+  The Mercado Pago preference ID used to identify this payment
+</ResponseField>
+
+<ResponseField name="initPoint" type="string">
+  The Mercado Pago checkout URL where users complete the payment
+</ResponseField>
+
+### Payment Status Values
+
+The payment can have one of the following statuses:
+
+- `approved` - Payment was successfully processed
+- `pending` - Payment is awaiting confirmation
+- `rejected` - Payment was declined or failed
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/api/mercado-pago/create-preference \
+  -H "Content-Type: application/json" \
+  -d '{
+    "type": "individual",
+    "studentsCount": 2,
+    "price": 10
+  }'
+```
+
+### Example Response
+
+```json
+{
+  "preferenceId": "123456789-a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "initPoint": "https://www.mercadopago.com.ar/checkout/v1/redirect?pref_id=123456789-a1b2c3d4"
+}
+```
+
+### Error Responses
+
+<ResponseField name="error" type="string">
+  Error message describing what went wrong
+</ResponseField>
+
+**401 Unauthorized**
+```json
+{
+  "error": "User not authenticated"
+}
+```
+
+**500 Internal Server Error**
+```json
+{
+  "error": "Failed to create preference"
+}
+```
+
+```json
+{
+  "error": "Failed to create payment record in our database"
+}
+```
+
+### Payment Configuration
+
+The payment preference includes:
+
+- **Installments**: Up to 12 monthly installments
+- **Currency**: ARS (Argentine Peso)
+- **Auto Return**: Automatically redirects on approval
+- **Callback URLs**:
+  - Success: `/checkout/callback/success`
+  - Failure: `/checkout/callback/failure`
+  - Pending: `/checkout/callback/pending`
+
+### Database Record
+
+Creates a `PaymentMercadoPago` record with the following fields:
+
+<ResponseField name="userId" type="string">
+  ID of the authenticated user making the payment
+</ResponseField>
+
+<ResponseField name="preferenceId" type="string">
+  Unique Mercado Pago preference identifier
+</ResponseField>
+
+<ResponseField name="price" type="number">
+  Payment amount in ARS
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Class type: `individual` or `grupal`
+</ResponseField>
+
+<ResponseField name="maxParticipants" type="number">
+  Maximum number of participants for the class
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Payment status (defaults to `pending`)
+</ResponseField>
+
+### Webhook Notification
+
+The endpoint automatically configures a webhook notification URL that Mercado Pago will call when payment status changes. See the [Webhook Documentation](/api/payments/webhooks) for more details.

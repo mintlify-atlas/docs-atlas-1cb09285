@@ -1,0 +1,690 @@
+---
+title: "Calendar Integration"
+description: "Integrate Google Calendar API for class scheduling, Google Meet link generation, and event management with OAuth2 authentication"
+---
+
+## Overview
+
+The calendar integration connects virtual classes with Google Calendar, automatically creating events with Google Meet links when payments are approved. The system uses OAuth2 authentication and manages event creation, updates, and retrieval.
+
+## Architecture
+
+The calendar system consists of:
+
+- **Google Calendar API** - Event creation and management
+- **Google Meet** - Video conferencing links
+- **OAuth2 Authentication** - Secure API access
+- **Refresh Token Storage** - Persistent authentication
+
+## Setup Requirements
+
+### Google Cloud Console Configuration
+
+1. Create a project in [Google Cloud Console](https://console.cloud.google.com/)
+2. Enable the following APIs:
+   - Google Calendar API
+   - Google Meet API (if using conferencing)
+3. Create OAuth 2.0 credentials:
+   - Application type: Web application
+   - Authorized redirect URIs: `https://yourdomain.com/api/auth/callback/google`
+
+### Environment Variables
+
+<CodeGroup>
+```bash .env
+# Google OAuth
+AUTH_GOOGLE_ID=your_client_id.apps.googleusercontent.com
+AUTH_GOOGLE_SECRET=your_client_secret
+GOOGLE_REDIRECT_URI=https://yourdomain.com/api/auth/callback/google
+
+# Calendar Configuration
+CALENDAR_ID=primary  # or specific calendar ID
+CALENDAR_API_KEY=your_api_key
+ADMIN_EMAIL=admin@yourdomain.com
+
+# Base URL
+BASE_URL=https://yourdomain.com/
+```
+</CodeGroup>
+
+<Note>
+The `CALENDAR_ID` can be "primary" for the main calendar or a specific calendar ID found in Google Calendar settings.
+</Note>
+
+## OAuth2 Authentication
+
+### Storing Refresh Tokens
+
+The system stores refresh tokens in the database for persistent access:
+
+<CodeGroup>
+```prisma prisma/schema.prisma
+model User {
+  id                 String   @id @default(auto()) @map("_id") @db.ObjectId
+  email              String   @unique
+  name               String
+  // ...
+  googleRefreshToken String?  // OAuth2 refresh token
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+}
+```
+</CodeGroup>
+
+### Managing Refresh Tokens
+
+<CodeGroup>
+```typescript services/functions/index.ts
+// Save refresh token after OAuth flow
+export async function updateRefreshTokenInDb(
+  userId: string, 
+  refreshToken: string
+) {
+  try {
+    const response = await db.user.update({
+      where: { id: userId },
+      data: { googleRefreshToken: refreshToken }
+    });
+    return response;
+  } catch (error) {
+    console.log(error);
+    return error;
+  }
+}
+
+// Retrieve refresh token for API calls
+export async function getRefreshTokenFromDb(userEmail: string) {
+  try {
+    const response = await db.user.findUnique({
+      where: { email: userEmail },
+      select: { googleRefreshToken: true }
+    });
+    return response?.googleRefreshToken;
+  } catch (error) {
+    console.log(error);
+    return error;
+  }
+}
+```
+</CodeGroup>
+
+## Calendar API Routes
+
+### Get Calendar Events (Public Read)
+
+Retrieve upcoming events using API key authentication:
+
+<CodeGroup>
+```typescript api/calendar/route.ts
+import { NextResponse } from "next/server";
+import { KY, Method } from '@/services/api';
+
+export async function GET() {
+  const calendarId = process.env.CALENDAR_ID!;
+  const apiKey = process.env.CALENDAR_API_KEY!;
+  const now = new Date().toISOString();
+  
+  const url = `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events?key=${apiKey}&timeMin=${now}`;
+
+  try {
+    const response = await KY(Method.GET, url);
+    const data = response.items as calendarEvent[];
+
+    const cleanData: calendarEvent[] = data.map((ev) => ({
+      start: ev.start,
+      end: ev.end,
+      status: ev.status,
+    }));
+
+    return NextResponse.json(cleanData);
+  } catch (error) {
+    console.log(error);
+    return NextResponse.json(
+      { error: 'Failed to fetch calendar events' }, 
+      { status: 500 }
+    );
+  }
+}
+```
+</CodeGroup>
+
+### Create Calendar Event (OAuth)
+
+Create events with Google Meet links using OAuth2:
+
+<CodeGroup>
+```typescript api/calendar/route.ts
+import { google } from "googleapis";
+import { 
+  createGoogleCalendarEvent, 
+  findVirtualClass, 
+  getRefreshTokenFromDb, 
+  updateVirtualClass 
+} from "@/services/functions";
+
+export async function POST(request: NextRequest) {
+  try {
+    const { preferenceId } = await request.json();
+    
+    if (!preferenceId) {
+      return NextResponse.json(
+        { error: "Missing preferenceId" }, 
+        { status: 400 }
+      );
+    }
+
+    const calendarId = process.env.CALENDAR_ID!;
+
+    // Setup OAuth2 client
+    const auth = new google.auth.OAuth2(
+      process.env.AUTH_GOOGLE_ID,
+      process.env.AUTH_GOOGLE_SECRET,
+      process.env.GOOGLE_REDIRECT_URI
+    );
+
+    // Get stored refresh token
+    const refreshToken = await getRefreshTokenFromDb(
+      process.env.ADMIN_EMAIL!
+    );
+    auth.setCredentials({ refresh_token: refreshToken as string });
+
+    // Find associated booking
+    const body = await findVirtualClass(preferenceId);
+    console.log("Retrieved data from findVirtualClass", body?.response);
+
+    if (!body?.success) {
+      return NextResponse.json(
+        { error: "Virtual class not found" }, 
+        { status: 404 }
+      );
+    }
+
+    // Initialize Calendar API
+    const calendar = google.calendar({ version: 'v3', auth });
+
+    // Create event with Google Meet
+    const googleCalendarEvent = await createGoogleCalendarEvent(
+      calendarId, 
+      calendar, 
+      body.response
+    );
+
+    console.log("GOOGLE EVENT CREATED:", googleCalendarEvent.response);
+
+    // Update booking with event details
+    if (googleCalendarEvent?.success) {
+      await updateVirtualClass(
+        googleCalendarEvent.response, 
+        body.response
+      );
+    }
+
+    return NextResponse.json({ 
+      success: true, 
+      message: "Event created successfully" 
+    });
+  } catch (error) {
+    console.error(error);
+    return NextResponse.json(
+      { error: 'Failed to create calendar event' }, 
+      { status: 500 }
+    );
+  }
+}
+```
+</CodeGroup>
+
+## Creating Google Calendar Events
+
+### Event Creation Function
+
+<CodeGroup>
+```typescript services/functions/index.ts
+import { google } from "googleapis";
+
+export async function createGoogleCalendarEvent(
+  calendarId: string, 
+  calendar: any, 
+  eventData: any
+) {
+  const { startTime, endTime, classType, maxParticipants } = eventData;
+
+  const bookingClass = {
+    summary: `Clase de Inglés`,
+    description: `La clase sera ${classType} con x${maxParticipants == 0 ? 1 : maxParticipants} participantes`,
+    start: {
+      dateTime: startTime,
+      timeZone: 'America/Argentina/Buenos_Aires',
+    },
+    end: {
+      dateTime: endTime,
+      timeZone: 'America/Argentina/Buenos_Aires',
+    },
+    conferenceData: {
+      createRequest: {
+        requestId: `meet-${Date.now()}`,  // Must be unique
+        conferenceSolutionKey: {
+          type: 'hangoutsMeet',  // Creates Google Meet link
+        },
+      },
+    },
+    transparency: "opaque", // Shows as "Busy" in calendar
+  };
+
+  try {
+    const response = await calendar.events.insert({
+      calendarId,
+      requestBody: bookingClass,
+      conferenceDataVersion: 1,  // Required for Google Meet
+    });
+
+    return { response: response.data, success: true };
+  } catch (error) {
+    console.error("Error creating calendar event:", error);
+    throw error;
+  }
+}
+```
+</CodeGroup>
+
+<Info>
+**Conference Data Version**: The `conferenceDataVersion: 1` parameter is mandatory to generate Google Meet links. Without it, events will be created without conferencing details.
+</Info>
+
+### Event Response Structure
+
+Google Calendar returns a comprehensive event object:
+
+<CodeGroup>
+```typescript Event Response Example
+{
+  kind: 'calendar#event',
+  etag: '"3520948709485150"',
+  id: '76rgnvdee81tr12trkvd161i1k',
+  status: 'confirmed',
+  htmlLink: 'https://www.google.com/calendar/event?eid=...',
+  created: '2025-10-14T20:39:14.000Z',
+  updated: '2025-10-14T20:39:14.742Z',
+  summary: 'Clase de Inglés',
+  description: 'La clase sera individual con x1 participantes',
+  creator: { 
+    email: 'service-account@project.iam.gserviceaccount.com' 
+  },
+  organizer: { 
+    email: 'admin@yourdomain.com', 
+    self: true 
+  },
+  start: {
+    dateTime: '2025-10-18T20:00:00-03:00',
+    timeZone: 'America/Argentina/Buenos_Aires'
+  },
+  end: {
+    dateTime: '2025-10-18T21:00:00-03:00',
+    timeZone: 'America/Argentina/Buenos_Aires'
+  },
+  conferenceData: {
+    entryPoints: [{
+      entryPointType: 'video',
+      uri: 'https://meet.google.com/abc-defg-hij',
+      label: 'meet.google.com/abc-defg-hij'
+    }],
+    conferenceSolution: {
+      key: { type: 'hangoutsMeet' },
+      name: 'Google Meet'
+    }
+  },
+  iCalUID: '76rgnvdee81tr12trkvd161i1k@google.com',
+  sequence: 0,
+  reminders: { useDefault: true },
+  eventType: 'default'
+}
+```
+</CodeGroup>
+
+## Linking Events to Virtual Classes
+
+After creating a Google Calendar event, update the virtual class record:
+
+<CodeGroup>
+```typescript services/functions/index.ts
+export async function updateVirtualClass(
+  googleCalendarEvent: any, 
+  body: any
+) {
+  const { classType, maxParticipants, text, preferenceId } = body;
+  
+  // Generate unique 8-character access code
+  const randomCode = Math.random()
+    .toString(36)
+    .substring(2, 10)
+    .toUpperCase();
+
+  const saveCalendarEvent: Omit<CalendarEvent, 'bookedById' | 'participantsIds'> = {
+    googleEventId: googleCalendarEvent.id,
+    accessCode: randomCode,
+    startTime: new Date(googleCalendarEvent.start.dateTime),
+    endTime: new Date(googleCalendarEvent.end.dateTime),
+    maxParticipants: maxParticipants,
+    currentParticipants: 1,
+    classPrice: 111, // TODO: Use actual price
+    htmlLink: googleCalendarEvent.conferenceData.entryPoints[0].uri,
+    status: "scheduled",
+    summary: `${googleCalendarEvent.summary}. ${googleCalendarEvent.description}`,
+    learningFocus: text,
+    preferenceId: preferenceId,
+    hostType: 'anfitrion',
+    classType: classType,
+  };
+
+  try {
+    // Find booking by preferenceId
+    const reservedClassFound = await db.virtualClass.findFirst({
+      where: { preferenceId },
+      select: { id: true }
+    });
+
+    if (!reservedClassFound) {
+      return NextResponse.json(
+        { error: 'Virtual class not found' }, 
+        { status: 404 }
+      );
+    }
+
+    // Update with calendar event data
+    const newClass = await db.virtualClass.update({
+      where: { id: reservedClassFound.id },
+      data: saveCalendarEvent
+    });
+
+    // Create user activity record
+    if (newClass) {
+      await db.userActivity.create({
+        data: {
+          userId: newClass.bookedById,
+          classId: newClass.id,
+          taskId: null,
+          rol: 'anfitrion',
+          completed: false
+        }
+      });
+    }
+
+    return NextResponse.json({ success: true, status: 200 });
+  } catch (error) {
+    console.error('Error saving google event in database', error);
+    return NextResponse.json(
+      { error: 'Failed to save google event in database' }, 
+      { status: 500 }
+    );
+  }
+}
+```
+</CodeGroup>
+
+## Finding Virtual Classes
+
+Retrieve booking details by payment preference ID:
+
+<CodeGroup>
+```typescript services/functions/index.ts
+export async function findVirtualClass(preferenceId: string) {
+  try {
+    const response = await db.virtualClass.findFirst({
+      where: { preferenceId },
+      select: {
+        startTime: true,
+        endTime: true,
+        classType: true,
+        maxParticipants: true,
+        preferenceId: true,
+      }
+    });
+    return { response, success: true };
+  } catch (error) {
+    console.error("Error finding virtual class:", error);
+    return { success: false };
+  }
+}
+```
+</CodeGroup>
+
+## Listing Calendar Events
+
+Retrieve upcoming events for admin purposes:
+
+<CodeGroup>
+```typescript services/functions/index.ts
+export async function listEvents() {
+  try {
+    const calendarId = process.env.CALENDAR_ID!;
+    const auth = new google.auth.GoogleAuth({
+      credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON!),
+      scopes: ['https://www.googleapis.com/auth/calendar']
+    });
+
+    const calendar = google.calendar({ version: 'v3', auth });
+
+    const response = await calendar.events.list({
+      calendarId: calendarId,
+      maxResults: 10,
+      singleEvents: true,
+      orderBy: "startTime",
+      timeMin: new Date().toISOString()
+    });
+
+    const events = response.data.items;
+
+    if (!events || events.length === 0) {
+      console.log("No hay eventos en el calendario.");
+    } else {
+      console.log("Eventos completos:", JSON.stringify(events, null, 2));
+    }
+  } catch (error) {
+    console.error("Error listing events:", error);
+  }
+}
+```
+</CodeGroup>
+
+## Time Zone Handling
+
+The platform uses Argentina timezone for all events:
+
+<CodeGroup>
+```typescript lib/utils.ts
+import { format, toZonedTime } from 'date-fns-tz';
+
+const TIMEZONE = 'America/Argentina/Buenos_Aires';
+
+export function toArgentinaTZ(date: Date): Date {
+  return toZonedTime(date, TIMEZONE);
+}
+
+export function formatUTCDate(dateString: string): string {
+  const date = new Date(dateString);
+  const zonedDate = toArgentinaTZ(date);
+  return format(zonedDate, 'dd/MM/yyyy', { timeZone: TIMEZONE });
+}
+
+export function localeString(date: Date): string {
+  return format(date, 'HH:mm', { timeZone: TIMEZONE });
+}
+```
+</CodeGroup>
+
+<Note>
+Always use the `America/Argentina/Buenos_Aires` timezone for consistency across the platform. Google Calendar API accepts timezone strings in the event creation request.
+</Note>
+
+## Calendar Event Types
+
+<CodeGroup>
+```typescript lib/types.ts
+export interface CalendarEvent {
+  googleEventId: string;
+  bookedById: string;
+  accessCode: string;
+  startTime: Date;
+  endTime: Date;
+  hostType: 'anfitrion' | 'invitado';
+  currentParticipants: number;
+  maxParticipants: number;
+  classType: 'individual' | 'grupal';
+  classPrice: number;
+  htmlLink: string;
+  status: 'scheduled' | 'pending' | 'completed' | 'cancelled';
+  summary: string;
+  learningFocus?: string;
+  preferenceId: string;
+  participantsIds: string[];
+}
+
+export interface calendarEvent {
+  start: {
+    dateTime: string;
+    timeZone: string;
+  };
+  end: {
+    dateTime: string;
+    timeZone: string;
+  };
+  status: string;
+}
+```
+</CodeGroup>
+
+## Authentication Flow
+
+### OAuth2 Setup
+
+<CodeGroup>
+```typescript Setting up OAuth2 Client
+import { google } from 'googleapis';
+
+const auth = new google.auth.OAuth2(
+  process.env.AUTH_GOOGLE_ID,
+  process.env.AUTH_GOOGLE_SECRET,
+  process.env.GOOGLE_REDIRECT_URI
+);
+
+// Set credentials with refresh token
+const refreshToken = await getRefreshTokenFromDb(userEmail);
+auth.setCredentials({ refresh_token: refreshToken });
+
+// Use with Calendar API
+const calendar = google.calendar({ version: 'v3', auth });
+```
+</CodeGroup>
+
+## Service Account Alternative
+
+For server-to-server authentication without user interaction:
+
+<CodeGroup>
+```typescript Using Service Account
+const auth = new google.auth.GoogleAuth({
+  credentials: JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_JSON!),
+  scopes: ['https://www.googleapis.com/auth/calendar']
+});
+
+const calendar = google.calendar({ version: 'v3', auth });
+```
+</CodeGroup>
+
+<Info>
+**Service Account vs OAuth2**: Service accounts are better for automated tasks, while OAuth2 is required when acting on behalf of specific users.
+</Info>
+
+## Best Practices
+
+<Card title="Event Management" icon="calendar-check">
+- Use unique `requestId` for conference data to prevent duplicates
+- Set `transparency: "opaque"` to mark time as busy
+- Always specify timezone in start/end times
+- Store `googleEventId` for future updates or deletions
+</Card>
+
+<Card title="Authentication" icon="key">
+- Store refresh tokens securely in database
+- Implement token rotation for expired tokens
+- Use service accounts for background tasks
+- Never expose credentials in client-side code
+</Card>
+
+<Card title="Error Handling" icon="shield-alert">
+- Handle API rate limits (implement exponential backoff)
+- Catch and log authentication errors
+- Validate timezone strings before API calls
+- Implement retry logic for transient failures
+</Card>
+
+## Webhook Support
+
+Google Calendar supports webhooks for event changes:
+
+<CodeGroup>
+```typescript Setting up Calendar Webhook
+await calendar.events.watch({
+  calendarId: 'primary',
+  requestBody: {
+    id: 'unique-channel-id',
+    type: 'web_hook',
+    address: 'https://yourdomain.com/api/google-webhook',
+  },
+});
+```
+</CodeGroup>
+
+<Note>
+Webhook implementation is optional but recommended for real-time synchronization of calendar changes.
+</Note>
+
+## API Reference
+
+### Get Upcoming Events
+
+<CodeGroup>
+```typescript
+GET /api/calendar
+
+Response:
+[
+  {
+    "start": {
+      "dateTime": "2026-03-15T10:00:00-03:00",
+      "timeZone": "America/Argentina/Buenos_Aires"
+    },
+    "end": {
+      "dateTime": "2026-03-15T11:00:00-03:00",
+      "timeZone": "America/Argentina/Buenos_Aires"
+    },
+    "status": "confirmed"
+  }
+]
+```
+</CodeGroup>
+
+### Create Calendar Event
+
+<CodeGroup>
+```typescript
+POST /api/calendar
+
+Body:
+{
+  "preferenceId": "162275027-fe8b544b"
+}
+
+Response:
+{
+  "success": true,
+  "message": "Event created successfully"
+}
+```
+</CodeGroup>
+
+## Related Features
+
+- [Virtual Classes](/features/virtual-classes) - Class booking and scheduling
+- [Payment System](/features/payment-system) - Payment triggers calendar creation
+- [Learning Activities](/features/learning-activities) - Activities assigned after classes

@@ -1,0 +1,129 @@
+---
+title: Account Registration & Authentication
+description: Learn how to create your account and sign in to the Speak English Now platform
+---
+
+## Overview
+
+Speak English Now uses OAuth authentication to provide a secure and seamless login experience. You can sign in using your Google or GitHub account without creating a separate password.
+
+## Creating Your Account
+
+<Steps>
+  <Step title="Navigate to the Platform">
+    Visit the Speak English Now homepage at the platform URL. You'll see the landing page with information about the Weak-Form learning method.
+  </Step>
+
+  <Step title="Click Sign In">
+    Click the "Sign In" button on the homepage. This will present you with authentication options.
+  </Step>
+
+  <Step title="Choose Your Provider">
+    Select either:
+    - **Google** - Sign in with your Google account
+    - **GitHub** - Sign in with your GitHub account
+    
+    <Note>
+      When signing in with Google, the platform requests access to your calendar to create virtual class events automatically.
+    </Note>
+  </Step>
+
+  <Step title="Authorize Access">
+    Grant the necessary permissions when prompted by your chosen provider. The platform needs:
+    - Basic profile information (name, email, profile picture)
+    - Calendar access (Google only) for scheduling virtual classes
+  </Step>
+
+  <Step title="Automatic Account Creation">
+    Once authenticated, your account is automatically created in the system with:
+    - Your name and email
+    - Profile picture from your OAuth provider
+    - Default English level set to "inicial" (beginner)
+    - Newsletter preference set to "no" by default
+  </Step>
+</Steps>
+
+## User Profile Information
+
+When your account is created, the following information is stored:
+
+- **Email** - Your primary identifier (unique)
+- **Name** - Display name from your OAuth provider
+- **Profile Image** - Your avatar/photo
+- **English Level** - Set to "inicial" by default, can be updated later
+- **Location** - Optional field (defaults to "-")
+- **Phone** - Optional contact number (defaults to 0)
+- **Total Classes** - Starts at 0, automatically increments
+- **Newsletter** - Email preferences (si/no)
+
+## Session Management
+
+### Session Duration
+
+Your session remains active for:
+- **30 days** from login
+- Sessions update every 12 hours to keep you logged in
+- JWT tokens expire after 30 days
+
+<Tip>
+  The platform automatically manages your session. You don't need to log in frequently if you use the platform regularly.
+</Tip>
+
+### Automatic Redirect
+
+After successful authentication:
+- New users are redirected to `/inicio` (dashboard)
+- Existing users with active sessions are automatically redirected to `/inicio` when visiting the homepage
+- Failed authentication attempts return you to the home page
+
+## User Roles
+
+The platform supports three user roles:
+
+1. **USER** - Default role for all students
+2. **MOD** - Moderator role with additional permissions
+3. **ADMIN** - Full administrative access
+
+<Note>
+  All new accounts are created with the USER role by default.
+</Note>
+
+## Account Status
+
+Your account has a status field that:
+- Defaults to `false` (inactive) on creation
+- Can be activated by administrators
+- Affects access to certain platform features
+
+## Privacy & Security
+
+- Your OAuth refresh tokens are securely stored
+- Only the admin account's Google refresh token is used for creating calendar events
+- Your password is never stored as authentication is handled by OAuth providers
+- Session tokens expire automatically after 30 days
+
+## Troubleshooting
+
+### Can't Sign In
+
+If you experience login issues:
+
+1. Clear your browser cache and cookies
+2. Try a different OAuth provider (Google vs GitHub)
+3. Ensure you're granting all requested permissions
+4. Check that your email is verified with your OAuth provider
+
+### Session Expired
+
+If your session expires:
+- Simply click "Sign In" again
+- You'll be redirected to `/inicio` after authentication
+- All your data and class history are preserved
+
+## Next Steps
+
+After creating your account:
+
+1. Browse available classes in the [Booking System](/guide/booking-classes)
+2. Learn about [Virtual Classes](/features/virtual-classes)
+3. Explore [Learning Levels](/levels/overview) to find your level

@@ -1,0 +1,189 @@
+---
+title: Booking Classes
+description: Learn how to browse the calendar, select time slots, and book virtual English classes
+---
+
+## Overview
+
+The booking system uses an interactive calendar powered by FullCalendar to help you reserve virtual English classes. You can book both individual and group classes based on your needs.
+
+## Accessing the Booking System
+
+Navigate to **Reservas** (Bookings) from your dashboard menu at `/inicio/reservas`.
+
+## Understanding the Calendar
+
+### Available Time Slots
+
+Classes are available:
+- **Days**: Monday through Saturday (Wednesdays and Saturdays are primary class days)
+- **Hours**: 17:00 - 21:00 (5 PM - 9 PM Argentina time)
+- **Duration**: 1-hour time slots (90 minutes for group classes)
+
+<Note>
+  Group virtual classes on Wednesdays and Saturdays are 90-minute sessions followed by AI-generated activities to evaluate your learning.
+</Note>
+
+### Calendar Views
+
+#### Desktop View
+- **Week View**: Shows the entire week with all available time slots
+- **Navigation**: Use prev/next buttons to browse different weeks
+- **Today Button**: Quick jump back to the current week
+
+#### Mobile View
+- **Day View**: Shows a single day for easier navigation
+- **Aspect Ratio**: Optimized at 0.8 for mobile screens
+- **Compact Display**: Time slots are shown in a scrollable format
+
+### Calendar Legend
+
+- **Gray Background**: Past dates (not clickable)
+- **White/Default**: Available time slots
+- **Yellow (#F0ED90)**: Your scheduled/reserved classes
+- **Selected Slot**: Highlighted when you click on an available time
+
+## Booking a Class
+
+<Steps>
+  <Step title="Select a Time Slot">
+    Click on an available time slot in the calendar. The slot will be highlighted, and a booking form will appear below.
+    
+    <Tip>
+      You can only select future dates. Past dates are automatically disabled and appear grayed out.
+    </Tip>
+  </Step>
+
+  <Step title="Choose Class Type">
+    Select the type of class you want to book:
+    
+    - **Individual**: One-on-one session with an instructor
+    - **Grupal** (Group): Class with 2-5 participants
+  </Step>
+
+  <Step title="Configure Group Settings (If Applicable)">
+    If you selected a group class, choose the number of students:
+    
+    - 2 students
+    - 3 students
+    - 4 students
+    - 5 students
+    
+    The price automatically adjusts based on the number of participants.
+  </Step>
+
+  <Step title="Describe Your Learning Goal">
+    Enter the topic or focus for the class in the "Objetivo de la clase" field:
+    
+    - Maximum 100 characters
+    - Required field
+    - Examples: "Practice job interview conversations", "Review past tense grammar"
+    
+    <Note>
+      This helps the instructor prepare relevant materials for your class.
+    </Note>
+  </Step>
+
+  <Step title="Review Your Booking">
+    Verify the booking details displayed:
+    
+    - **Fecha** (Date): Formatted as DD/MM/YYYY
+    - **Horario** (Time): 24-hour format (HH:MM - HH:MM)
+    - **Tipo de clase**: Individual or Grupal
+    - **Cantidad de alumnos**: Number of students (for group classes)
+    - **Precio total**: Total price in Argentine pesos
+  </Step>
+
+  <Step title="Schedule Your Class">
+    Click the **"Agendar clase"** button. This button is only enabled when:
+    
+    - A date is selected
+    - A time slot is chosen
+    - The learning objective is filled in
+    - (For group classes) Number of students is selected
+  </Step>
+</Steps>
+
+## Pricing Structure
+
+Pricing is configured in `config/pricing.json`:
+
+- **Base Price**: Individual class rate
+- **Per Student**: Group class pricing based on participant count
+  - 2 students: Discounted rate
+  - 3 students: Further discount
+  - 4 students: Maximum group discount
+  - 5 students: Maximum participants allowed
+
+<Tip>
+  Group classes offer better value per person. Consider booking with friends or classmates!
+</Tip>
+
+## Class Types and Focus Areas
+
+Classes are organized by English level:
+
+### Gramática (Inicial)
+- Basic and advanced language structure
+- Real English phrase breakdown
+- Text composition skills
+
+### Auditivo (Intermedio)
+- Listening comprehension
+- Movie and conversation understanding
+- Reading ability development
+
+### Conversacional (Avanzado)
+- Speaking fluency
+- Oral expression with common contractions
+- Practical conversation practice
+
+## Payment Process
+
+After clicking "Agendar clase":
+
+1. You're redirected to `/inicio/pre-compra` (checkout preview)
+2. Review your booking details one final time
+3. Proceed to payment via Mercado Pago
+4. Upon successful payment:
+   - A Google Calendar event is automatically created
+   - Your class status changes from "pending" to "scheduled"
+   - You receive an access code to join the class
+
+<Note>
+  Classes remain in "pending" status until payment is confirmed. Only "approved" payments result in scheduled classes.
+</Note>
+
+## Viewing Your Bookings
+
+Booked classes appear on the calendar with:
+- **Class ID**: Shortened ID displayed (e.g., #a1b2c3)
+- **Type**: Individual or Grupal
+- **Participants**: Number of students
+- **Status**: Reservada (Scheduled), Completada (Completed), or Cancelada (Cancelled)
+
+## Booking Restrictions
+
+- Cannot book classes in the past
+- Cannot double-book the same time slot
+- Maximum 5 participants per group class
+- Minimum booking time: 1 hour in advance (recommended)
+
+## Special Scheduling Requests
+
+If you need:
+- Custom time slots outside 17:00-21:00
+- Special topics or advanced preparation
+- Weekend availability
+
+Contact support:
+- **WhatsApp**: +11-3057-7799
+- **Contact Form**: Available on the website
+
+## Next Steps
+
+After booking your class:
+
+1. Complete payment via [Mercado Pago](/guide/billing)
+2. View your scheduled classes in [Mis Clases Virtuales](/guide/taking-classes)
+3. Access the class room 60 minutes before the start time

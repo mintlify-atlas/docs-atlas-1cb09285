@@ -1,0 +1,199 @@
+---
+title: "Validate Access Code"
+description: "Verify an access code and join a virtual class"
+---
+
+## POST /api/access-code
+
+Validates an access code and attempts to add the authenticated user as a participant to the corresponding virtual class. Returns the Google Meet link if successful.
+
+### Authentication
+
+This endpoint requires authentication. The user must be logged in with a valid session.
+
+### Request Body
+
+The request body should be a plain string containing the access code.
+
+<ParamField body="accessCode" type="string" required>
+  8-character uppercase alphanumeric access code for the class
+  
+  Example: `"A1B2C3D4"`
+</ParamField>
+
+### Response
+
+<ResponseField name="response" type="object">
+  Response object containing class information or error message
+  
+  <Expandable title="Success Response">
+    <ResponseField name="id" type="string">
+      Unique identifier for the virtual class
+    </ResponseField>
+    
+    <ResponseField name="bookedById" type="string">
+      User ID of the class creator/host
+    </ResponseField>
+    
+    <ResponseField name="htmlLink" type="string">
+      Google Meet link URL for joining the class
+      
+      Example: `"https://meet.google.com/abc-defg-hij"`
+    </ResponseField>
+    
+    <ResponseField name="startTime" type="string">
+      ISO 8601 datetime when the class starts
+    </ResponseField>
+    
+    <ResponseField name="endTime" type="string">
+      ISO 8601 datetime when the class ends
+    </ResponseField>
+    
+    <ResponseField name="classType" type="string">
+      Type of class: `"individual"` or `"grupal"`
+    </ResponseField>
+    
+    <ResponseField name="currentParticipants" type="number">
+      Updated count of current participants after joining
+    </ResponseField>
+    
+    <ResponseField name="maxParticipants" type="number">
+      Maximum number of participants allowed
+    </ResponseField>
+  </Expandable>
+  
+  <Expandable title="Error Response">
+    <ResponseField name="message" type="string">
+      Error message describing why the access code validation failed
+      
+      Possible messages:
+      - `"El creador de la clase no puede unirse como participante"` - Class creator cannot join as participant
+      - `"La clase ya ha finalizado."` - Class has already ended
+      - `"No se encontro ninguna clase asociada a este codigo: {code}"` - No class found for this code
+      - `"El usuario ya está registrado en la clase"` - User is already registered in the class
+      - `"La clase ya alcanzó el número máximo de participantes"` - Class has reached maximum capacity
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+### Example Request
+
+```bash
+curl -X POST https://your-domain.com/api/access-code \
+  -H "Content-Type: application/json" \
+  -H "Cookie: authjs.session-token=YOUR_SESSION_TOKEN" \
+  -d '"A1B2C3D4"'
+```
+
+### Example Success Response
+
+```json
+{
+  "response": {
+    "id": "65f8a3b2c1d4e5f6a7b8c9d0",
+    "bookedById": "65f7a2b1c0d3e4f5a6b7c8d9",
+    "htmlLink": "https://meet.google.com/abc-defg-hij",
+    "startTime": "2026-03-15T10:00:00.000Z",
+    "endTime": "2026-03-15T11:00:00.000Z",
+    "classType": "grupal",
+    "currentParticipants": 3,
+    "maxParticipants": 5
+  }
+}
+```
+
+### Example Error Responses
+
+<Expandable title="Creator Cannot Join as Participant">
+  ```json
+  {
+    "response": {
+      "message": "El creador de la clase no puede unirse como participante"
+    }
+  }
+  ```
+  
+  The user who created the class is automatically added as the host and cannot join as a participant.
+</Expandable>
+
+<Expandable title="Class Has Ended">
+  ```json
+  {
+    "response": {
+      "message": "La clase ya ha finalizado."
+    }
+  }
+  ```
+  
+  The class end time has already passed. Users cannot join classes that have finished.
+</Expandable>
+
+<Expandable title="Invalid Access Code">
+  ```json
+  {
+    "response": {
+      "message": "No se encontro ninguna clase asociada a este codigo: A1B2C3D4"
+    }
+  }
+  ```
+  
+  No virtual class was found with the provided access code.
+</Expandable>
+
+<Expandable title="Already Registered">
+  ```json
+  {
+    "response": {
+      "message": "El usuario ya está registrado en la clase"
+    }
+  }
+  ```
+  
+  The user is already a participant in this class. Each user can only join once.
+</Expandable>
+
+<Expandable title="Class Full">
+  ```json
+  {
+    "response": {
+      "message": "La clase ya alcanzó el número máximo de participantes"
+    }
+  }
+  ```
+  
+  The class has reached its maximum capacity and cannot accept more participants.
+</Expandable>
+
+<Expandable title="500 Internal Server Error">
+  ```json
+  {
+    "error": "Failed to fetch Google Meet link"
+  }
+  ```
+  
+  An unexpected error occurred on the server while processing the request.
+</Expandable>
+
+### Validation Flow
+
+When an access code is submitted, the system:
+
+1. Looks up the virtual class by access code
+2. Validates that the class exists
+3. Checks if the requesting user is the class creator (not allowed to join as participant)
+4. Verifies the class has not ended
+5. Confirms the class has not reached maximum capacity
+6. Checks if the user is already registered
+7. Adds the user as a participant in a transaction:
+   - Creates a `UserActivity` record with role `"participante"`
+   - Increments `currentParticipants` counter
+   - Adds user ID to `participantsIds` array
+8. Returns the class details including the Google Meet link
+
+### Notes
+
+- Access codes are 8-character uppercase alphanumeric strings generated automatically when a class is scheduled
+- The access code validation uses a database transaction to ensure data consistency
+- Users can only join classes that haven't ended yet
+- The class creator cannot join their own class as a participant (they are automatically the host)
+- Each user can only join a class once
